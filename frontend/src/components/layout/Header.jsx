@@ -1,6 +1,8 @@
 import { Menu, Bell } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
 
 function Header({ setOpen }) {
+    const { user } = useAuth();
 
     return (
 
@@ -21,7 +23,7 @@ function Header({ setOpen }) {
             <div className="flex items-center gap-5">
                 <Bell size={20} />
                 <div className="w-10 h-10 rounded-full bg-teal-600 text-white flex items-center justify-center">
-                    A
+                    {user?.name?.charAt(0) || "A"}
                 </div>
             </div>
 

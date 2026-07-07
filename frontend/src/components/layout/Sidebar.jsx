@@ -7,9 +7,15 @@ import {
   X,
 } from "lucide-react";
 
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 
 function Sidebar({ open, setOpen }) {
+
+  const navigate = useNavigate();
+
+  const { logout, user } = useAuth();
+
   const menus = [
     {
       name: "Dashboard",
@@ -33,9 +39,16 @@ function Sidebar({ open, setOpen }) {
     },
   ];
 
+  const handleLogout = () => {
+
+    logout();
+
+    navigate("/");
+
+  };
+
   return (
     <>
-      {/* Overlay */}
       {open && (
         <div
           onClick={() => setOpen(false)}
@@ -61,8 +74,22 @@ function Sidebar({ open, setOpen }) {
           lg:translate-x-0
         `}
       >
-        <div className="h-20 flex items-center justify-between px-6 border-b border-white/20 flex-shrink-0">
-          <h1 className="font-bold text-xl">Tracker</h1>
+
+        {/* Logo */}
+
+        <div className="h-20 px-6 border-b border-white/10 flex items-center justify-between">
+
+          <div>
+
+            <h1 className="font-bold text-xl tracking-wide">
+              QRFlow
+            </h1>
+
+            <p className="text-xs text-teal-100 mt-1">
+              Admission Tracker
+            </p>
+
+          </div>
 
           <button
             className="lg:hidden"
@@ -70,31 +97,87 @@ function Sidebar({ open, setOpen }) {
           >
             <X />
           </button>
+
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-4 py-6">
+        {/* User */}
+
+        <div className="px-6 py-6 border-b border-white/10">
+
+          <div className="flex items-center gap-4">
+
+            <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center font-bold text-lg">
+
+              {user?.name?.charAt(0) || "A"}
+
+            </div>
+
+            <div>
+
+              <h3 className="font-semibold">
+
+                {user?.name || "Administrator"}
+
+              </h3>
+
+              <p className="text-sm text-teal-100">
+
+                {user?.role || "SUPER_ADMIN"}
+
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* Navigation */}
+
+        <nav className="flex-1 px-4 py-6 overflow-y-auto">
+
           {menus.map((item) => (
+
             <NavLink
               key={item.path}
               to={item.path}
+              onClick={() => setOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-4 px-4 py-3 rounded-xl mb-2 transition ${
+                `flex items-center gap-4 px-4 py-3 rounded-2xl mb-2 font-medium transition-all ${
                   isActive
-                    ? "bg-white text-teal-700"
-                    : "hover:bg-teal-600"
+                    ? "bg-white text-teal-700 shadow-sm"
+                    : "text-white/90 hover:bg-white/10"
                 }`
               }
             >
+
               <item.icon size={20} />
+
               {item.name}
+
             </NavLink>
+
           ))}
 
-          <button className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-red-500 mt-10 w-full">
-            <LogOut size={20} />
-            Logout
-          </button>
         </nav>
+
+        {/* Logout */}
+
+        <div className="p-4 border-t border-white/10">
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-3 rounded-2xl bg-red-500 hover:bg-red-600 py-3 transition font-medium"
+          >
+
+            <LogOut size={18} />
+
+            Logout
+
+          </button>
+
+        </div>
+
       </aside>
     </>
   );

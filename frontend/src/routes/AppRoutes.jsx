@@ -3,45 +3,69 @@ import { Routes, Route } from "react-router-dom";
 import Login from "../pages/auth/Login";
 
 import Dashboard from "../pages/admin/Dashboard";
-
 import Students from "../pages/admin/Students";
-
 import Desks from "../pages/admin/Desks";
-
 import Settings from "../pages/admin/Settings";
 
 import Home from "../pages/student/Home";
-
 import Journey from "../pages/student/Journey";
-
 import Success from "../pages/student/Success";
+import StudentLogin from "../pages/student/Login";
 
-function AppRoutes(){
+import { AuthProvider } from "../context/AuthContext";
+import ProtectedRoute from "../components/ProtectedRoute";
 
-    return(
 
-        <Routes>
+export default function AppRoutes() {
+  return (
+    <AuthProvider>
+      <Routes>
 
-            <Route path="/" element={<Login/>}/>
+        <Route path="/" element={<Login />} />
 
-            <Route path="/admin" element={<Dashboard/>}/>
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
 
-            <Route path="/admin/students" element={<Students/>}/>
+        <Route
+          path="/admin/students"
+          element={
+            <ProtectedRoute>
+              <Students />
+            </ProtectedRoute>
+          }
+        />
 
-            <Route path="/admin/desks" element={<Desks/>}/>
+        <Route
+          path="/admin/desks"
+          element={
+            <ProtectedRoute>
+              <Desks />
+            </ProtectedRoute>
+          }
+        />
 
-            <Route path="/admin/settings" element={<Settings/>}/>
+        <Route
+          path="/admin/settings"
+          element={
+            <ProtectedRoute>
+              <Settings />
+            </ProtectedRoute>
+          }
+        />
 
-            <Route path="/student" element={<Home/>}/>
+        <Route path="/student" element={<Home />} />
+        <Route path="/journey" element={<Journey />} />
+        <Route path="/completed" element={<Success />} />
+        <Route path="/student-login" element={<StudentLogin />} />
+        <Route path="/success" element={<Success />} />
 
-            <Route path="/journey" element={<Journey/>}/>
-
-            <Route path="/completed" element={<Success/>}/>
-
-        </Routes>
-
-    );
-
+      </Routes>
+    </AuthProvider>
+  );
 }
-
-export default AppRoutes;

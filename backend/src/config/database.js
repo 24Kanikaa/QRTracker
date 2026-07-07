@@ -4,6 +4,9 @@ require("dotenv").config();
 let pool = null;
 
 async function initializeDatabase() {
+
+    //console.log("Initializing database...");
+
     // Connect without selecting a database
     const connection = await mysql.createConnection({
         host: process.env.DB_HOST,
@@ -12,14 +15,16 @@ async function initializeDatabase() {
         password: process.env.DB_PASSWORD
     });
 
-    // Create database if it doesn't exist
+    //console.log("Connected to MySQL server");
+
     await connection.query(
         `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME}\``
     );
 
+    //console.log("Database verified");
+
     await connection.end();
 
-    // Create connection pool
     pool = mysql.createPool({
         host: process.env.DB_HOST,
         port: process.env.DB_PORT,
@@ -31,10 +36,11 @@ async function initializeDatabase() {
         queueLimit: 0
     });
 
-    console.log("✅ Connected to MySQL");
+    //console.log("Pool created");
 }
 
 function getDB() {
+
     if (!pool) {
         throw new Error("Database has not been initialized.");
     }

@@ -1,11 +1,9 @@
 const jwt = require("jsonwebtoken");
 
 const generateToken = (user) => {
-
     return jwt.sign(
         {
             id: user.id,
-            email: user.email,
             role: user.role
         },
         process.env.JWT_SECRET,
@@ -13,16 +11,10 @@ const generateToken = (user) => {
             expiresIn: "12h"
         }
     );
-
 };
 
 const verifyToken = (token) => {
-
-    return jwt.verify(
-        token,
-        process.env.JWT_SECRET
-    );
-
+    return jwt.verify(token, process.env.JWT_SECRET);
 };
 
 module.exports = {
