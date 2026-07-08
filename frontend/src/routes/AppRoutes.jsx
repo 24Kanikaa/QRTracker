@@ -8,7 +8,6 @@ import Desks from "../pages/admin/Desks";
 import Settings from "../pages/admin/Settings";
 
 import Home from "../pages/student/Home";
-import Journey from "../pages/student/Journey";
 import Success from "../pages/student/Success";
 import StudentLogin from "../pages/student/Login";
 
@@ -60,7 +59,7 @@ export default function AppRoutes() {
         />
 
         <Route path="/student" element={<Home />} />
-        <Route path="/journey" element={<Journey />} />
+        {/* <Route path="/journey" element={<Journey />} /> */}
         <Route path="/completed" element={<Success />} />
         <Route path="/student-login" element={<StudentLogin />} />
         <Route path="/success" element={<Success />} />

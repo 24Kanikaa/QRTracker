@@ -2,19 +2,59 @@ const express = require("express");
 const router = express.Router();
 
 const auth = require("../middleware/authMiddleware");
+const dashboardController = require("../controllers/dashboardController");
 
-router.get("/", auth, (req, res) => {
 
-    res.json({
+// Main dashboard data
+router.get(
+    "/summary",
+    auth,
+    dashboardController.getSummary
+);
 
-        success: true,
 
-        message: "Authenticated",
+router.get(
+    "/desk-summary",
+    auth,
+    dashboardController.getDeskSummary
+);
 
-        user: req.user
 
-    });
+// Full dashboard overview
+router.get(
+    "/overview",
+    auth,
+    dashboardController.getDashboardOverview
+);
 
-});
+
+// Students
+router.get(
+    "/today-students",
+    auth,
+    dashboardController.getTodayStudents
+);
+
+
+router.get(
+    "/desk/:id/students",
+    auth,
+    dashboardController.getDeskStudents
+);
+
+
+router.get(
+    "/student/:id/journey",
+    auth,
+    dashboardController.getStudentJourney
+);
+
+
+router.get(
+    "/recent-scans",
+    auth,
+    dashboardController.getRecentScans
+);
+
 
 module.exports = router;

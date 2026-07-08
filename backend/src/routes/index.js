@@ -4,6 +4,7 @@ const router = express.Router();
 
 router.use("/auth", require("./authRoutes"));
 router.use("/desks", require("./deskRoutes"));
+router.use("/dashboard", require("./dashboardRoutes"));
 router.get("/", (req, res) => {
 
     res.json({

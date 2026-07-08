@@ -14,7 +14,7 @@ function AdminLayout({ children }) {
       {/* Right Side */}
       <div className="lg:ml-72 h-screen flex flex-col">
 
-        <Header setOpen={setOpen} />
+        {/* <Header setOpen={setOpen} /> */}
 
         <main className="flex-1 overflow-y-auto">
           <div className="p-8 pb-20">

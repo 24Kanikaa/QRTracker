@@ -7,6 +7,7 @@ const deskController = require("../controllers/deskController");
 const auth = require("../middleware/authMiddleware");
 
 router.get("/", auth, deskController.getAllDesks);
+router.get("/reports", auth, deskController.getDeskReports);
 
 router.get("/:id", auth, deskController.getDeskById);
 
@@ -19,10 +20,18 @@ router.delete("/:id", auth, deskController.deleteDesk);
 router.patch("/:id/status", auth, deskController.toggleDeskStatus);
 
 // Reports
-router.get("/reports", auth, deskController.getDeskReports);
+
 
 // router.get("/:id/report", auth, deskController.getDeskReport);
 
-// router.get("/:id/students", auth, deskController.getDeskStudents);
+router.get("/:id/students",
+    auth,
+    deskController.getDeskStudents
+);
+router.get("/scan/:slug", deskController.getDeskBySlug);
+
+router.get("/:id/qr", auth, deskController.getDeskQR);
+
+router.get("/:id", auth, deskController.getDeskById);
 
 module.exports = router;

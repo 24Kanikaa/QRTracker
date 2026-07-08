@@ -132,3 +132,82 @@ exports.getDeskReports = async (req, res, next) => {
         next(err);
     }
 };
+
+exports.getDeskStudents = async(req,res,next)=>{
+
+    try{
+
+        const deskService =
+            new DeskService(getDB());
+
+
+        const students =
+            await deskService.getDeskStudents(
+                req.params.id
+            );
+
+
+        res.json({
+            success:true,
+            data:students
+        });
+
+
+    }catch(err){
+        next(err);
+    }
+
+};
+
+exports.getDeskQR = async (req, res, next) => {
+
+    try {
+
+        const deskService = new DeskService(getDB());
+
+        const qr = await deskService.getQR(req.params.id);
+
+        if (!qr) {
+            return res.status(404).json({
+                success: false,
+                message: "Desk not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            data: qr
+        });
+
+    } catch (err) {
+        next(err);
+    }
+
+};
+
+
+exports.getDeskBySlug = async (req, res, next) => {
+
+    try {
+
+        const deskService = new DeskService(getDB());
+
+        const desk = await deskService.getBySlug(req.params.slug);
+
+        if (!desk) {
+            return res.status(404).json({
+                success: false,
+                message: "Desk not found"
+            });
+        }
+
+        res.json({
+            success: true,
+            data: desk
+        });
+
+    } catch (err) {
+        next(err);
+    }
+
+};
