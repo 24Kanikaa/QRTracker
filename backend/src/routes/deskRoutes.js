@@ -8,10 +8,11 @@ const auth = require("../middleware/authMiddleware");
 
 router.get("/", auth, deskController.getAllDesks);
 router.get("/reports", auth, deskController.getDeskReports);
-
+router.get("/journey", auth, deskController.getJourney);
 router.get("/:id", auth, deskController.getDeskById);
 
 router.post("/", auth, deskController.createDesk);
+router.post("/scan", auth, deskController.scanDesk);
 
 router.put("/:id", auth, deskController.updateDesk);
 
@@ -33,5 +34,6 @@ router.get("/scan/:slug", deskController.getDeskBySlug);
 router.get("/:id/qr", auth, deskController.getDeskQR);
 
 router.get("/:id", auth, deskController.getDeskById);
+
 
 module.exports = router;

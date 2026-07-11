@@ -209,5 +209,50 @@ exports.getDeskBySlug = async (req, res, next) => {
     } catch (err) {
         next(err);
     }
+    
 
+};
+exports.scanDesk = async (req, res, next) => {
+    try {
+
+        const { email, qr_slug } = req.body;
+
+        if (!email || !qr_slug) {
+            return res.status(400).json({
+                success: false,
+                message: "Email and QR slug are required."
+            });
+        }
+
+        const deskService = new DeskService(getDB());
+
+        const result = await deskService.scanDesk(
+            email,
+            qr_slug
+        );
+
+        res.json({
+            success: true,
+            message: `${result.desk_name} completed successfully.`,
+            data: result,
+        });
+
+    } catch (err) {
+        next(err);
+    }
+};
+
+exports.getJourney = async (req, res, next) => {
+  try {
+    const deskService = new DeskService(getDB());
+
+    const journey = await deskService.getJourney(req.query.email);
+
+    res.json({
+      success: true,
+      data: journey,
+    });
+  } catch (err) {
+    next(err);
+  }
 };

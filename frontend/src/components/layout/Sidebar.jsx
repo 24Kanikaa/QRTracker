@@ -34,11 +34,18 @@ function Sidebar({ open, setOpen }) {
 
   const menus = [
     { name: "Dashboard", icon: LayoutDashboard, path: "/admin" },
-    { name: "Students", icon: Users, path: "/admin/students" },
+    { name: "Student Wise", icon: Users, path: "/admin/students" },
     { name: "Desks", icon: Building2, path: "/admin/desks" },
     { name: "Settings", icon: Settings, path: "/admin/settings" },
   ];
 
+  const getInitials = (name = "") =>
+  name
+    .split(" ")
+    .map((n) => n[0])
+    .join("")
+    .substring(0, 2)
+    .toUpperCase();
   const handleLogout = () => {
     logout();
     navigate("/");
@@ -81,46 +88,43 @@ function Sidebar({ open, setOpen }) {
           style={{ borderBottom: `1px solid ${C.hairline}` }}
         >
           <div className="flex items-center gap-3">
+
             <div
-              className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm"
-              style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}40` }}
+              className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold"
+              style={{
+                background: C.brassSoft,
+                color: C.brass,
+                border: `1px solid ${C.brass}40`,
+              }}
             >
-              Q
+              {getInitials(user?.name)}
             </div>
+
             <div>
-              <h1 className="font-bold text-xl tracking-wide" style={{ color: C.text }}>
-                QRFlow
-              </h1>
-              <p className="text-xs mt-1" style={{ color: C.mutedSoft }}>
-                Admission Tracker
+              <h2
+                className="font-semibold text-lg"
+                style={{ color: C.text }}
+              >
+                {user?.name || "Administrator"}
+              </h2>
+
+              <p
+                className="text-xs"
+                style={{ color: C.mutedSoft }}
+              >
+                Onboarding Tracker
               </p>
             </div>
           </div>
 
-          <button className="lg:hidden" onClick={() => setOpen(false)} style={{ color: C.muted }}>
+          <button
+            className="lg:hidden"
+            onClick={() => setOpen(false)}
+          >
             <X size={20} />
           </button>
         </div>
 
-        {/* User */}
-        <div className="px-6 py-6" style={{ borderBottom: `1px solid ${C.hairline}` }}>
-          <div className="flex items-center gap-4">
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg"
-              style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}40` }}
-            >
-              {user?.name?.charAt(0) || "A"}
-            </div>
-            <div>
-              <h3 className="font-semibold" style={{ color: C.text }}>
-                {user?.name || "Administrator"}
-              </h3>
-              <p className="text-sm" style={{ color: C.muted }}>
-                {user?.role || "SUPER_ADMIN"}
-              </p>
-            </div>
-          </div>
-        </div>
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-6 overflow-y-auto">
@@ -128,20 +132,33 @@ function Sidebar({ open, setOpen }) {
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.path === "/admin"}
               onClick={() => setOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-4 px-4 py-3 rounded-2xl mb-2 font-medium transition-all ${
-                  isActive ? "shadow-lg" : "hover:bg-white/5"
+                `group flex items-center gap-4 px-4 py-3 rounded-2xl mb-2 transition-all duration-200 ${
+                  isActive
+                    ? "shadow-lg"
+                    : "hover:bg-white/5"
                 }`
               }
               style={({ isActive }) =>
                 isActive
-                  ? { background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}40` }
-                  : { color: C.muted, border: "1px solid transparent" }
+                  ? {
+                      background: C.brassSoft,
+                      color: C.brass,
+                      border: `1px solid ${C.brass}40`,
+                    }
+                  : {
+                      color: C.muted,
+                      border: "1px solid transparent",
+                    }
               }
             >
               <item.icon size={20} />
-              {item.name}
+
+              <span className="font-medium">
+                {item.name}
+              </span>
             </NavLink>
           ))}
         </nav>

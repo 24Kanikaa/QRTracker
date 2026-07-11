@@ -18,18 +18,18 @@ export default function StudentLogin() {
 
         <div className="text-center text-white">
 
-          <div className="mx-auto w-24 h-24 rounded-3xl bg-white/15 backdrop-blur-lg border border-white/20 flex items-center justify-center shadow-xl">
+          {/* <div className="mx-auto w-24 h-24 rounded-3xl bg-white/15 backdrop-blur-lg border border-white/20 flex items-center justify-center shadow-xl"> */}
 
-            <GraduationCap size={48} />
+            <img src="https://media.plaksha.edu.in/logo-white.png" alt="PLAKSHA" className="mx-auto w-70 h-35"></img>
 
-          </div>
+          {/* </div> */}
 
           <h1 className="text-4xl font-bold mt-8 tracking-tight">
-            Admission Tracker
+            Onboarding Tracker
           </h1>
 
           <p className="mt-3 text-teal-100 leading-relaxed">
-            Complete your admission journey effortlessly with
+            Complete your onboarding journey effortlessly with
             QR based desk verification.
           </p>
 
@@ -111,7 +111,7 @@ export default function StudentLogin() {
         </div>
 
         <p className="text-center text-teal-100 text-sm mt-8">
-          Plaksha University • Admission 2026
+          Plaksha University • Onboarding 2026
         </p>
 
       </div>

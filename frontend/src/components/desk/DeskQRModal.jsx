@@ -12,11 +12,6 @@ export default function DeskQRModal({
 
   if (!open || !desk) return null;
 
-  // This is what the student scanner will read
-  const qrValue = JSON.stringify({
-    deskId: desk.id,
-    slug: desk.qr_slug,
-  });
 
   const downloadQR = async () => {
     const dataUrl = await toPng(qrRef.current);
@@ -60,7 +55,7 @@ export default function DeskQRModal({
             className="bg-white rounded-2xl p-8 border flex flex-col items-center"
           >
             <QRCode
-              value={qrValue}
+              value={desk.qr_slug}
               size={240}
             />
 

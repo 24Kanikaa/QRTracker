@@ -1,349 +1,342 @@
+import { useState, useEffect, useCallback } from "react";
+import QRScannerModal from "./QRScannerModal";
+import {
+    getJourney,
+    scanDesk,
+} from "../../services/deskService";
 import {
   GraduationCap,
-  CheckCircle2,
-  QrCode,
+  Building2,
   DoorOpen,
   FileCheck,
   BedDouble,
   Laptop,
   UtensilsCrossed,
   LibraryBig,
+  ClipboardList,
+  Shield,
+  Users,
+  // Home,
+  CheckCircle2,
+  QrCode,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
-
-const student = {
-  name: "Kanika",
-  id: "UG20260045",
-  program: "B.Tech CSE",
-  admission: "Admission 2026",
-  completed: 1,
-  total: 6,
+const ICONS = {
+  gate: DoorOpen,
+  admission: FileCheck,
+  hostel: BedDouble,
+  laptop: Laptop,
+  it: Laptop,
+  mess: UtensilsCrossed,
+  library: LibraryBig,
+  building: Building2,
+  clipboard: ClipboardList,
+  shield: Shield,
+  users: Users,
+  // home: Home,
 };
 
-const journey = [
-  {
-    id: 1,
-    title: "Gate Entry",
-    location: "Main Gate",
-    status: "completed",
-    time: "09:12 AM",
-    icon: DoorOpen,
-    color: "bg-blue-100 text-blue-600",
-  },
-  {
-    id: 2,
-    title: "Admission Desk",
-    location: "Admission Hall",
-    status: "pending",
-    icon: FileCheck,
-    color: "bg-violet-100 text-violet-600",
-  },
-  {
-    id: 3,
-    title: "Hostel Allocation",
-    location: "Hostel Reception",
-    status: "pending",
-    icon: BedDouble,
-    color: "bg-orange-100 text-orange-600",
-  },
-  {
-    id: 4,
-    title: "IT Setup",
-    location: "IT Helpdesk",
-    status: "pending",
-    icon: Laptop,
-    color: "bg-cyan-100 text-cyan-600",
-  },
-  {
-    id: 5,
-    title: "Mess Registration",
-    location: "Dining Hall",
-    status: "pending",
-    icon: UtensilsCrossed,
-    color: "bg-green-100 text-green-600",
-  },
-  {
-    id: 6,
-    title: "Library Activation",
-    location: "Central Library",
-    status: "pending",
-    icon: LibraryBig,
-    color: "bg-amber-100 text-amber-600",
-  },
-];
+const COLORS = {
+  gate: "bg-blue-100 text-blue-600",
+  admission: "bg-violet-100 text-violet-600",
+  hostel: "bg-orange-100 text-orange-600",
+  laptop: "bg-cyan-100 text-cyan-600",
+  it: "bg-cyan-100 text-cyan-600",
+  mess: "bg-green-100 text-green-600",
+  library: "bg-amber-100 text-amber-600",
+  building: "bg-slate-100 text-slate-600",
+  clipboard: "bg-pink-100 text-pink-600",
+  shield: "bg-indigo-100 text-indigo-600",
+  users: "bg-emerald-100 text-emerald-600",
+  // home: "bg-orange-100 text-orange-600",
+};
+
+function getDeskVisual(desk) {
+  const key = (desk.icon || "").toLowerCase();
+
+  return {
+    icon: ICONS[key] || Building2,
+    color: COLORS[key] || "bg-slate-100 text-slate-600",
+  };
+}
+
+function getLoggedInEmail() {
+  try {
+    const user = JSON.parse(localStorage.getItem("user"));
+    return user?.email || null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Home() {
-  const progress = Math.round(
-    (student.completed / student.total) * 100
-  );
+  const [showScanner, setShowScanner] = useState(false);
+// const [selectedDesk, setSelectedDesk] = useState(null);
+  const [student, setStudent] = useState(null);
+  const [journey, setJourney] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchJourney = useCallback(async () => {
+    const email = getLoggedInEmail();
+
+    if (!email) {
+      setError("You're not logged in. Please sign in again.");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setError(null);
+      const res = await getJourney(email);
+      const { student: s, journey: j } = res.data.data;
+      setStudent(s);
+      setJourney(j);
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to load your journey.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchJourney();
+  }, [fetchJourney]);
+
+const handleScan = async (qrSlug) => {
+  try {
+    const email = getLoggedInEmail();
+
+    // if (!selectedDesk) {
+    //   return;
+    // }
+
+    // // Prevent scanning the wrong QR
+    // if (selectedDesk.slug !== qrSlug) {
+    //   throw new Error(
+    //     `Please scan the QR for "${selectedDesk.title}".`
+    //   );
+    // }
+
+    await scanDesk({
+      email,
+      qr_slug: qrSlug,
+    });
+
+    setShowScanner(false);
+    // setSelectedDesk(null);
+
+    await fetchJourney();
+
+  } catch (err) {
+    alert(
+      err.response?.data?.message ||
+      err.message ||
+      "Unable to complete desk."
+    );
+  }
+};
+
+  /* ---------- loading state ---------- */
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <Loader2 size={28} className="animate-spin text-teal-600" />
+          <p className="text-sm">Loading your journey...</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- error state ---------- */
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center px-6">
+        <div className="bg-white rounded-3xl shadow-sm p-8 max-w-sm w-full text-center">
+          <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle size={26} />
+          </div>
+          <h3 className="font-semibold text-slate-800">Something went wrong</h3>
+          <p className="text-sm text-slate-500 mt-2">{error}</p>
+          <button
+            onClick={fetchJourney}
+            className="mt-5 w-full h-11 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-medium transition"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const progress = student?.total
+    ? Math.round((student.completed / student.total) * 100)
+    : 0;
 
   return (
     <div className="min-h-screen bg-slate-100 flex justify-center">
-
       <div className="w-full max-w-md bg-slate-100 min-h-screen">
 
         {/* HEADER */}
 
         <div className="bg-gradient-to-br from-teal-600 via-teal-600 to-teal-700 rounded-b-[36px] px-6 pt-12 pb-16 text-white shadow-lg">
 
-          <div className="flex justify-between items-start">
+          <div className="flex gap-4">
 
-            <div className="flex gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center">
+              <GraduationCap size={30} />
+            </div>
 
-              <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+            <div>
+            <h3 className="text-2xl font-bold mt-1">
+                Hi, welcome to Plaksha 👋
+              </h3>
 
-                <GraduationCap size={30} />
+              <p className="text-teal-100 text-sm">
 
-              </div>
+               Kanika Kainthla
 
-              <div>
+              </p>
 
-                <p className="text-teal-100 text-sm">
-                  Hi, welcome to plaksha  👋
-                </p>
-
-                <h1 className="text-2xl font-bold mt-1">
-                  {student.name}
-                </h1>
-
-              </div>
-
+              
             </div>
 
           </div>
 
         </div>
 
-        {/* PROGRESS */}
+        {/* Progress */}
 
         <div className="mx-5 -mt-10 bg-white rounded-3xl shadow-xl p-6">
 
-          <div className="flex items-center justify-between">
+          <div className="flex justify-between items-center">
 
             <div>
-
               <p className="text-slate-500 text-sm">
-
-                Registration Progress
-
+                Onboarding Progress
               </p>
 
               <h2 className="text-2xl font-bold mt-2">
-
-                {student.completed} of {student.total}
-
+                {student?.completed} of {student?.total}
               </h2>
 
               <p className="text-slate-400 text-sm mt-1">
-
-                Student ID • {student.id}
-
+                Student ID • {student?.rollNo}
               </p>
-
             </div>
 
             <div className="relative w-20 h-20">
-
-              <svg
-                className="w-20 h-20 rotate-[-90deg]"
-                viewBox="0 0 100 100"
-              >
-
+              <svg className="w-20 h-20 rotate-[-90deg]" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="42" stroke="#E5E7EB" strokeWidth="8" fill="none" />
                 <circle
                   cx="50"
                   cy="50"
                   r="42"
-                  stroke="#e5e7eb"
-                  strokeWidth="8"
-                  fill="none"
-                />
-
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="42"
-                  stroke="#0f766e"
+                  stroke="#0F766E"
                   strokeWidth="8"
                   fill="none"
                   strokeLinecap="round"
                   strokeDasharray={264}
-                  strokeDashoffset={
-                    264 - (264 * progress) / 100
-                  }
+                  strokeDashoffset={264 - (264 * progress) / 100}
                 />
-
               </svg>
 
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-
-                <span className="font-bold text-lg">
-
-                  {progress}%
-
-                </span>
-
+              <div className="absolute inset-0 flex items-center justify-center font-bold">
+                {progress}%
               </div>
-
             </div>
 
           </div>
 
         </div>
 
-        {/* JOURNEY */}
+        {/* Journey */}
 
         <div className="px-5 mt-8 pb-8">
 
-          <div className="flex justify-between items-center mb-6">
-
-            <h2 className="text-xl font-bold text-slate-800">
-
-              Your Track
-
-            </h2>
-
-            <span className="text-teal-600 font-semibold text-sm">
-
-              {student.completed}/{student.total} Completed
-
+          <div className="flex justify-between mb-6">
+            <h2 className="text-xl font-bold">Your Track</h2>
+            <span className="text-teal-600 font-semibold">
+              {student?.completed}/{student?.total}
             </span>
-
           </div>
 
           <div className="relative">
-
-            {/* Timeline */}
-
             <div className="absolute left-7 top-5 bottom-5 w-[2px] bg-slate-200"></div>
 
             <div className="space-y-5">
-
               {journey.map((desk) => {
-
-                const Icon = desk.icon;
+                const { icon: Icon, color } = getDeskVisual(desk);
 
                 return (
-
-                  <div
-                    key={desk.id}
-                    className={`relative bg-white rounded-3xl shadow-sm border transition hover:shadow-md ${
-                      desk.status === "completed"
-                        ? "border-green-100"
-                        : "border-slate-200"
-                    }`}
-                  >
-
-                    <div className="flex items-center gap-4 p-4">
-
-                      {/* ICON */}
-
-                      <div
-                        className={`relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center ${desk.color}`}
-                      >
-
+                  <div key={desk.id} className="relative bg-white rounded-3xl p-4 shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className={`relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center ${color}`}>
                         <Icon size={26} />
-
                       </div>
-
-                      {/* INFO */}
 
                       <div className="flex-1">
-
                         <div className="flex items-center gap-2">
-
-                          <h3 className="font-semibold text-slate-800">
-
-                            {desk.title}
-
-                          </h3>
-
+                          <h3 className="font-semibold">{desk.title}</h3>
                           {desk.status === "completed" && (
-
-                            <CheckCircle2
-                              size={18}
-                              className="text-green-600"
-                            />
-
+                            <CheckCircle2 size={18} className="text-green-600" />
                           )}
-
                         </div>
 
-                        <p className="text-sm text-slate-500 mt-1">
-
-                          {desk.location}
-
-                        </p>
+                        <p className="text-sm text-slate-500">{desk.location}</p>
 
                         {desk.status === "completed" && (
-
                           <p className="text-xs text-green-600 mt-2">
-
                             Completed at {desk.time}
-
                           </p>
-
                         )}
-
                       </div>
 
-                      {/* ACTION */}
-
                       {desk.status === "completed" ? (
-
-                        <div className="text-green-600 text-sm font-semibold">
-
-                          Done
-
-                        </div>
-
+                        <span className="text-green-600 font-semibold text-sm">Done</span>
                       ) : (
-
-                        <button className="w-12 h-12 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow hover:bg-teal-700 transition hover:scale-105 active:scale-95">
-
+                        <button
+                          onClick={() => {
+                            // setSelectedDesk(desk);
+                            setShowScanner(true);
+                          }}
+                          className="w-12 h-12 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center"
+                        >
                           <QrCode size={22} />
-
                         </button>
-
                       )}
-
                     </div>
-
                   </div>
-
                 );
-
               })}
-
             </div>
-
           </div>
-
         </div>
 
-        {/* HELP */}
+        {/* Help */}
 
         <div className="px-5 pb-8">
-
-          <div className="bg-white rounded-3xl p-5 border border-slate-200">
-
-            <h3 className="font-semibold text-slate-800">
-
-              Need Assistance?
-
-            </h3>
-
-            <p className="text-sm text-slate-500 mt-2 leading-6">
-
+          <div className="bg-white rounded-3xl p-5">
+            <h3 className="font-semibold">Need Assistance?</h3>
+            <p className="text-sm text-slate-500 mt-2">
               If you face any issue during the admission process,
-              please contact the nearest volunteer or visit the
-              Help Desk.
-
+              please contact the nearest volunteer or visit the Help Desk.
             </p>
-
           </div>
-
         </div>
 
       </div>
+
+      <QRScannerModal
+        open={showScanner}
+        onClose={() => {
+          setShowScanner(false);
+          // setSelectedDesk(null);
+        }}
+        onScan={handleScan}
+      />
 
     </div>
   );

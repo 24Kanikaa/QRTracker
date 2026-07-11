@@ -42,7 +42,8 @@ module.exports = async (db) => {
                     ON UPDATE CURRENT_TIMESTAMP
             );
         `);
-                await db.query(`
+        
+        await db.query(`
         CREATE TABLE IF NOT EXISTS students (
         id INT AUTO_INCREMENT PRIMARY KEY,
 

@@ -47,7 +47,7 @@ export default function Success() {
             <p className="text-teal-100 mt-3 leading-7">
 
               You have successfully completed your
-              registration process.
+              onboarding process.
 
             </p>
 
@@ -76,7 +76,7 @@ export default function Success() {
 
                 <h2 className="font-bold text-slate-800 text-lg">
 
-                  Admission Completed
+                  Onboarding Completed
 
                 </h2>
 
