@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import Sidebar from "../components/layout/Sidebar";
-import Header from "../components/layout/Header";
 import { Outlet } from "react-router-dom";
-function AdminLayout({ children }) {
+function AdminLayout() {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
 
   return (
     <div className="h-screen bg-slate-100 overflow-hidden">
@@ -14,11 +20,9 @@ function AdminLayout({ children }) {
       {/* Right Side */}
       <div className="lg:ml-72 h-screen flex flex-col">
 
-        {/* <Header setOpen={setOpen} /> */}
-
         <main className="flex-1 overflow-y-auto">
-          <div >
-              <Outlet />
+          <div>
+              <Outlet context={{ setOpen }} />
           </div>
         </main>
 

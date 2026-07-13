@@ -5,15 +5,16 @@ import {
   Gauge,
   Sun,
   Moon,
+  Menu,
   Plus,
 } from "lucide-react";
 import DeskReportCard from "../../components/desk/DeskReportCard";
 import DeskManageCard from "../../components/desk/DeskManageCard";
-import AdminLayout from "../../layouts/AdminLayout";
 import { useState, useEffect } from "react";
+import { useOutletContext } from "react-router-dom";
 import AddDeskModal from "../../components/desk/AddDeskModal";
 import DeskQRModal from "../../components/desk/DeskQRModal";
-// import { createDesk } from "../../services/deskService";
+import { useTheme } from "../../context/ThemeContext";
 import {
   getDesks,
   getDashboardData,
@@ -22,48 +23,9 @@ import {
   deleteDesk,
 } from "../../services/deskService";
 
-const LIGHT = {
-  bg: "#F2F8F7",
-  panel: "#FFFFFF",
-  panel2: "#F6FBFA",
-  hairline: "#E1EFEC",
-  hairlineSoft: "#EDF6F4",
-  text: "#12302C",
-  muted: "#5E7D79",
-  mutedSoft: "#93B0AC",
-  brass: "#0D9488",
-  brassSoft: "#0D94881A",
-  rose: "#F43F5E",
-  roseSoft: "#F43F5E1A",
-  green: "#10B981",
-  greenSoft: "#10B9811A",
-  amber: "#D97706",
-  amberSoft: "#D977061A",
-  cardShadow: "0 1px 2px rgba(18,48,44,0.04)",
-};
-
-const DARK = {
-  bg: "#07211D",
-  panel: "#0E322D",
-  panel2: "#0B2824",
-  hairline: "#1D5148",
-  hairlineSoft: "#153E37",
-  text: "#EAF7F3",
-  muted: "#8FC7BC",
-  mutedSoft: "#5C978B",
-  brass: "#0D9488",
-  brassSoft: "#0D948826",
-  rose: "#F97362",
-  roseSoft: "#F9736226",
-  green: "#4ADE9A",
-  greenSoft: "#4ADE9A26",
-  amber: "#F0B860",
-  amberSoft: "#F0B86026",
-  cardShadow: "0 1px 2px rgba(0,0,0,0.3)",
-};
-
 export default function DesksOverview() {
-  const [dark, setDark] = useState(false);
+  const { dark, toggleDark, C } = useTheme();
+  const { setOpen: setSidebarOpen } = useOutletContext();
   const [activeTab, setActiveTab] = useState("reports");
   const [desks, setDesks] = useState([]);
   const [report, setReport] = useState({
@@ -84,8 +46,6 @@ export default function DesksOverview() {
       console.error(err);
     }
   };
-
-  const C = dark ? DARK : LIGHT;
 
   const fetchData = async () => {
     try {
@@ -177,36 +137,37 @@ export default function DesksOverview() {
           padding:"40px"
         }}
       >
-        <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:opsz,wght@9..144,400;9..144,600;9..144,700&family=Open+Sans:wght@400;500;600&display=swap');
-        * { font-family: 'Open Sans', sans-serif; }
-      `}</style>
-
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-            <div>
-              <p
-                className="text-xs font-semibold tracking-[0.2em] uppercase"
-                style={{ color: C.brass }}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 lg:hidden"
+                style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.text, boxShadow: C.cardShadow }}
               >
-                Admission Operations
-              </p>
+                <Menu size={18} />
+              </button>
+              <div>
+                <p
+                  className="text-xs font-semibold tracking-[0.2em] uppercase"
+                  style={{ color: C.brass }}
+                >
+                  Admission Operations
+                </p>
 
-              <h1
-                className="text-4xl md:text-5xl font-semibold mt-2"
-                style={{
-                  color: C.text,
-                  fontFamily: "'Open Sans', sans-serif",
-                }}
-              >
-                Desk Overview
-              </h1>
+                <h1
+                  className="text-4xl md:text-5xl font-semibold mt-2"
+                  style={{ color: C.text }}
+                >
+                  Desk Overview
+                </h1>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setDark((d) => !d)}
+                onClick={toggleDark}
                 className="w-11 h-11 rounded-xl flex items-center justify-center transition"
                 style={{
                   background: C.panel,

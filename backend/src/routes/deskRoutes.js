@@ -9,6 +9,11 @@ const auth = require("../middleware/authMiddleware");
 router.get("/", auth, deskController.getAllDesks);
 router.get("/reports", auth, deskController.getDeskReports);
 router.get("/journey", auth, deskController.getJourney);
+router.get(
+  "/students",
+  auth,
+  deskController.getStudents
+);
 router.get("/:id", auth, deskController.getDeskById);
 
 router.post("/", auth, deskController.createDesk);

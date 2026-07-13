@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+    --font-sans: "Open Sans", sans-serif;
+}
+
 html,
 body,
 #root {
@@ -11,5 +15,5 @@ body{
     margin:0;
     background:#f8fafc;
     overflow-x: hidden;
-    font-family:Open-sans,sans-serif;
+    font-family: "Open Sans", sans-serif;
 }

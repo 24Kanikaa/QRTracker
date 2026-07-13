@@ -121,35 +121,35 @@ class DeskService {
     const [rows] = await this.db.query(
       `
             SELECT
-    d.id,
-    d.desk_name AS name,
-    d.location,
+              d.id,
+              d.desk_name AS name,
+              d.location,
 
-    COUNT(l.id) AS totalStudents,
+              COUNT(l.id) AS totalStudents,
 
-    MAX(l.scan_time) AS lastScan,
+              MAX(l.scan_time) AS lastScan,
 
-    ROUND(
-        AVG(
-            TIMESTAMPDIFF(
-                SECOND,
-                s.arrival_date,
-                l.scan_time
-            )
-        )
-    ) AS avgSeconds
+              ROUND(
+                  AVG(
+                      TIMESTAMPDIFF(
+                          SECOND,
+                          s.arrival_date,
+                          l.scan_time
+                      )
+                  )
+              ) AS avgSeconds
 
-FROM desks d
+          FROM desks d
 
-LEFT JOIN logs l
-ON l.desk_id=d.id
+          LEFT JOIN logs l
+          ON l.desk_id=d.id
 
-LEFT JOIN students s
-ON s.id=l.student_id
+          LEFT JOIN students s
+          ON s.id=l.student_id
 
-GROUP BY d.id
+          GROUP BY d.id
 
-ORDER BY d.display_order;
+        ORDER BY d.display_order;
             `,
       [date, date, date, date],
     );
@@ -169,6 +169,7 @@ ORDER BY d.display_order;
 
     return rows[0] || null;
   }
+
   async getSummary(date) {
     const [[deskStats]] = await this.db.query(`
         SELECT
@@ -274,11 +275,10 @@ ORDER BY d.display_order;
       }),
     };
   }
-async getDeskStudents(deskId) {
-
+  async getDeskStudents(deskId) {
     // Get all students who completed this desk
     const [students] = await this.db.query(
-        `
+      `
         SELECT
             s.id,
             CONCAT(
@@ -295,12 +295,12 @@ async getDeskStudents(deskId) {
         WHERE l.desk_id = ?
         ORDER BY l.scan_time DESC
         `,
-        [deskId]
+      [deskId],
     );
 
     // Count + latest scan + average interval between scans
     const [stats] = await this.db.query(
-        `
+      `
         SELECT
             COUNT(*) AS count,
             MAX(scan_time) AS last_scan,
@@ -321,16 +321,16 @@ async getDeskStudents(deskId) {
         FROM logs l
         WHERE l.desk_id = ?
         `,
-        [deskId]
+      [deskId],
     );
 
     return {
-        count: Number(stats[0].count || 0),
-        lastScan: stats[0].last_scan,
-        avgSeconds: Number(stats[0].avg_seconds || 0),
-        students,
+      count: Number(stats[0].count || 0),
+      lastScan: stats[0].last_scan,
+      avgSeconds: Number(stats[0].avg_seconds || 0),
+      students,
     };
-}
+  }
   /* ---------------- QR ---------------- */
 
   async getQR(id) {
@@ -456,6 +456,7 @@ async getDeskStudents(deskId) {
     return desk;
   }
 
+  //for each student 
   async getJourney(email) {
     // Get student
     const [students] = await this.db.query(
@@ -550,6 +551,123 @@ async getDeskStudents(deskId) {
       journey,
     };
   }
+
+  //for all student report
+async getStudents(status = "ALL") {
+  const [desks] = await this.db.query(`
+    SELECT id, desk_name
+    FROM desks
+    WHERE active = TRUE
+    ORDER BY display_order
+  `);
+
+  const totalDesks = desks.length;
+
+  const [students] = await this.db.query(`
+    SELECT
+        s.id,
+        s.roll_number,
+        s.application_number,
+        s.first_name,
+        s.last_name,
+        s.email,
+        s.gender,
+        s.expected_date,
+        s.arrival_date,
+        s.status,
+        d.desk_name AS current_desk
+    FROM students s
+    LEFT JOIN desks d
+        ON d.id = s.current_desk_id
+    ORDER BY s.first_name
+  `);
+
+  const [logs] = await this.db.query(`
+    SELECT
+        l.student_id,
+        l.scan_time,
+        d.id AS desk_id,
+        d.desk_name
+    FROM logs l
+    INNER JOIN desks d
+        ON d.id = l.desk_id
+    ORDER BY l.scan_time
+  `);
+
+  const logsMap = {};
+
+  logs.forEach(log => {
+    if (!logsMap[log.student_id]) {
+      logsMap[log.student_id] = {};
+    }
+
+    logsMap[log.student_id][log.desk_name] = {
+      status: "completed",
+      time: log.scan_time,
+    };
+  });
+
+  let result = students.map(student => {
+
+    const studentLogs = logsMap[student.id] || {};
+
+    const completedCount = Object.keys(studentLogs).length;
+
+    const deskStatus = {};
+
+    desks.forEach(desk => {
+
+      deskStatus[desk.desk_name] =
+        studentLogs[desk.desk_name] || {
+          status: "pending",
+          time: null,
+        };
+
+    });
+
+    return {
+      id: student.id,
+      rollNumber: student.roll_number,
+      applicationNumber: student.application_number,
+      name: `${student.first_name} ${student.last_name ?? ""}`.trim(),
+      email: student.email,
+      gender: student.gender,
+      expectedDate: student.expected_date,
+      arrivalDate: student.arrival_date,
+      currentDesk: student.current_desk,
+      completedCount,
+      totalDesks,
+      desks: deskStatus,
+    };
+  });
+
+  switch (status) {
+    case "COMPLETED":
+      result = result.filter(
+        s => s.completedCount === totalDesks
+      );
+      break;
+
+    case "IN_PROGRESS":
+      result = result.filter(
+        s =>
+          s.completedCount > 0 &&
+          s.completedCount < totalDesks
+      );
+      break;
+
+    case "EXPECTED":
+      result = result.filter(
+        s => s.completedCount === 0
+      );
+      break;
+  }
+
+  return {
+    desks,
+    students: result,
+  };
+}
 }
 
 module.exports = DeskService;

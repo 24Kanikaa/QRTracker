@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Users,
   UserCheck,
@@ -31,68 +32,7 @@ import {
   RadialBar,
   PolarAngleAxis,
 } from "recharts";
-import Sidebar from "../../components/layout/Sidebar";
-
-/* ---------------------------------------------------------
-   Two palettes, one token shape.
-   LIGHT: white cards on a barely-tinted mint page.
-   DARK: the neutral dark-slate + teal-accent control room.
---------------------------------------------------------- */
-const LIGHT = {
-  bg: "#F2F8F7",
-  panel: "#FFFFFF",
-  panel2: "#F6FBFA",
-  hairline: "#E1EFEC",
-  hairlineSoft: "#EDF6F4",
-  text: "#12302C",
-  muted: "#5E7D79",
-  mutedSoft: "#93B0AC",
-  brass: "#14B8A6",
-  brassSoft: "#14B8A61A",
-  rose: "#F43F5E",
-  roseSoft: "#F43F5E1A",
-  green: "#10B981",
-  greenSoft: "#10B9811A",
-  sky: "#0EA5E9",
-  violet: "#8B5CF6",
-  tooltipBg: "#12302C",
-  tooltipText: "#F2F8F7",
-  tooltipMuted: "#B7D6D1",
-  cardShadow: "0 1px 2px rgba(18,48,44,0.04)",
-  clockGradient: null,
-  clockAccent: "#14B8A6",
-  clockShadow: "0 1px 2px rgba(18,48,44,0.04)",
-  clockText: "#12302C",
-  clockDate: "#93B0AC",
-};
-
-const DARK = {
-  bg: "#07211D",
-  panel: "#0E322D",
-  panel2: "#0B2824",
-  hairline: "#1D5148",
-  hairlineSoft: "#153E37",
-  text: "#EAF7F3",
-  muted: "#8FC7BC",
-  mutedSoft: "#5C978B",
-  brass: "#2DD4BF",
-  brassSoft: "#2DD4BF26",
-  rose: "#F97362",
-  roseSoft: "#F9736226",
-  green: "#4ADE9A",
-  greenSoft: "#4ADE9A26",
-  sky: "#38BDF8",
-  violet: "#A78BFA",
-  tooltipBg: "#0B2824",
-  tooltipText: "#EAF7F3",
-  tooltipMuted: "#8FC7BC",
-  cardShadow: "0 1px 2px rgba(0,0,0,0.3)",
-  clockGradient: "linear-gradient(135deg, #0F5C52 0%, #0E7A6D 55%, #16A599 100%)",
-  clockAccent: "#FFE8B8",
-  clockShadow: "0 8px 24px rgba(45,212,191,0.18)",
-  clockText: "#FFFFFF",
-  clockDate: "#D7F3EC",
-};
+import { useTheme } from "../../context/ThemeContext";
 
 /* ---------------------------------------------------------
    DATASETS
@@ -226,9 +166,13 @@ const DESK_ICONS = {
   Library: Library,
 };
 
-// First "tab" is a dropdown: Live, then each date.
+// First "tab" is a dropdown: today's date (live), then each other date.
+// The button itself always just reads "Day Wise" — it's the list inside
+// the dropdown that shows today's actual date as the selected entry.
+const TODAY_LABEL = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
 const DAYWISE_OPTIONS = [
-  { key: "live", label: "Day Wise" },
+  { key: "live", label: `${TODAY_LABEL} (Today)` },
   { key: "date1", label: "18 July 2026" },
   { key: "date2", label: "19 July 2026" },
 ];
@@ -305,7 +249,7 @@ function LiveClock({ C }) {
         </span>
         <span className="text-xs font-semibold tracking-widest" style={{ color: C.clockAccent }}>LIVE</span>
       </div>
-      <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText, fontFamily: "'JetBrains Mono', monospace" }}>{time}</p>
+      <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText}}>{time}</p>
       <p className="text-xs mt-0.5" style={{ color: C.clockDate }}>{date}</p>
     </div>
   );
@@ -330,16 +274,14 @@ function makeTooltip(C) {
 /* ----------------------------- Page ----------------------------- */
 
 export default function Dashboard() {
-  const [dark, setDark] = useState(false);
-  const C = dark ? DARK : LIGHT;
+  const { dark, toggleDark, C } = useTheme();
+  const { setOpen: setSidebarOpen } = useOutletContext();
 
   // mode: which tab is active. "daywise" covers Live + individual dates
   // (chosen via the dropdown), "overall" is the combined view.
   const [mode, setMode] = useState("daywise");
   const [daywiseSelection, setDaywiseSelection] = useState("live");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [active, setActive] = useState("Dashboard");
   const dropdownRef = useRef(null);
 
   const isLive = mode === "daywise" && daywiseSelection === "live";
@@ -385,14 +327,6 @@ export default function Dashboard() {
     }));
   }, [data, C]);
 
-  // Quick-glance stats for the Overall tab's Desk Performance card.
-  const deskStats = useMemo(() => {
-    if (!deskDetails.length) return null;
-    const sorted = [...deskDetails].sort((a, b) => b.value - a.value);
-    const avg = Math.round(deskDetails.reduce((sum, d) => sum + d.value, 0) / deskDetails.length);
-    return { best: sorted[0], worst: sorted[sorted.length - 1], avg };
-  }, [deskDetails]);
-
   const CustomTooltip = useMemo(() => makeTooltip(C), [dark]);
 
   const statusStyle = {
@@ -406,8 +340,6 @@ export default function Dashboard() {
   return (
     <div style={{ background: C.bg, minHeight: "100vh", transition: "background 0.25s ease" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Open+Sans:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
-        * { font-family: 'Open Sans', sans-serif; }
         ::-webkit-scrollbar { height: 6px; width: 6px; }
         ::-webkit-scrollbar-thumb { background: ${C.hairline}; border-radius: 4px; }
         @keyframes pageIn {
@@ -417,11 +349,8 @@ export default function Dashboard() {
         .page-transition { animation: pageIn 0.35s ease; }
       `}</style>
 
-      <Sidebar dark={dark} active={active} />
-
       <div>
         <div className="p-6 md:p-10">
-          {/* Mobile header */}
           <div className="flex items-center justify-between gap-4 mb-6 lg:hidden">
             <button
               onClick={() => setSidebarOpen(true)}
@@ -432,7 +361,7 @@ export default function Dashboard() {
             </button>
             {isLive && (
               <button
-                onClick={() => setDark((d) => !d)}
+                onClick={toggleDark}
                 className="w-10 h-10 rounded-xl flex items-center justify-center"
                 style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.brass }}
               >
@@ -441,7 +370,6 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Tab bar: dropdown (Live / dates) + Overall */}
           <div className="mb-6">
             <div className="inline-flex items-center rounded-2xl p-1 w-fit" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
               <div className="relative" ref={dropdownRef}>
@@ -454,7 +382,7 @@ export default function Dashboard() {
                     color: mode === "daywise" ? "#fff" : C.muted,
                   }}
                 >
-                  {mode === "daywise" ? daywiseLabel : "Day Wise"}
+                  Day Wise
                   <ChevronDown size={14} style={{ color: mode === "daywise" ? "#fff" : C.mutedSoft }} />
                 </button>
 
@@ -470,7 +398,7 @@ export default function Dashboard() {
                           key={opt.key}
                           type="button"
                           onClick={() => chooseDaywise(opt.key)}
-                          className="w-full text-left px-4 py-2.5 text-sm transition-colors"
+                          className="w-full text-left px-4 py-2.5 text-sm transition-colors whitespace-nowrap"
                           style={{ color: isActive ? C.brass : C.text, background: isActive ? C.brassSoft : "transparent" }}
                         >
                           {opt.label}
@@ -496,7 +424,7 @@ export default function Dashboard() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-6">
             <div>
               <div className="flex items-center gap-3">
-                <p className="text-xs font-semibold tracking-[0.2em] uppercase" style={{ color: C.brass }}>
+                <p className="text-xs  tracking-[0.2em] uppercase" style={{ color: C.brass }}>
                   Onboarding Control Room
                 </p>
                 {isLive && (
@@ -510,7 +438,7 @@ export default function Dashboard() {
                 )}
               </div>
               <h1
-                className="text-4xl md:text-5xl font-semibold mt-2"
+                className="text-4xl md:text-5xl font-semibold mt-2 mb-5"
                 style={{
                   color: C.text,
                   fontFamily: "'Open Sans', sans-serif",
@@ -527,11 +455,10 @@ export default function Dashboard() {
               </p>
             </div>
 
-            {/* Dark mode toggle + live clock — only shown while Live is active */}
             {isLive && (
               <div className="hidden md:flex items-center gap-3">
                 <button
-                  onClick={() => setDark((d) => !d)}
+                  onClick={toggleDark}
                   className="w-11 h-11 rounded-xl flex items-center justify-center transition"
                   style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.brass, boxShadow: C.cardShadow }}
                   title={dark ? "Switch to light mode" : "Switch to dark mode"}
@@ -644,9 +571,9 @@ export default function Dashboard() {
                         {data.recentStudents.map((s, i) => (
                           <tr key={i} style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
                             <td className="px-6 py-4 font-medium" style={{ color: C.text }}>{s.name}</td>
-                            <td className="px-4 py-4" style={{ color: C.mutedSoft, fontFamily: "'JetBrains Mono', monospace" }}>{s.id}</td>
+                            <td className="px-4 py-4" style={{ color: C.mutedSoft}}>{s.id}</td>
                             <td className="px-4 py-4" style={{ color: C.muted }}>{s.desk}</td>
-                            <td className="px-4 py-4" style={{ color: C.muted, fontFamily: "'JetBrains Mono', monospace" }}>{s.time}</td>
+                            <td className="px-4 py-4" style={{ color: C.muted}}>{s.time}</td>
                             <td className="px-4 py-4">
                               <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ background: statusStyle[s.status].bg, color: statusStyle[s.status].fg }}>
                                 {s.status}
@@ -686,7 +613,7 @@ export default function Dashboard() {
                                 </span>
                               </div>
                               <p className="text-xs mt-0.5" style={{ color: C.muted }}>
-                                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{d.processed}</span> of {d.expected} processed
+                                <span >{d.processed}</span> of {d.expected} processed
                               </p>
                               <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
                                 <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
@@ -766,7 +693,7 @@ export default function Dashboard() {
                                 </span>
                               </div>
                               <p className="text-xs mt-0.5" style={{ color: C.muted }}>
-                                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{d.processed}</span> of {d.expected} processed
+                                <span>{d.processed}</span> of {d.expected} processed
                               </p>
                               <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
                                 <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
@@ -810,11 +737,11 @@ export default function Dashboard() {
                     </div>
                     <div className="text-center">
                       <p className="text-xs" style={{ color: C.mutedSoft }}>Completed</p>
-                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.green, fontFamily: "'JetBrains Mono', monospace" }}>{data.stats.completed.value}</p>
+                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.green}}>{data.stats.completed.value}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs" style={{ color: C.mutedSoft }}>Waiting</p>
-                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.rose, fontFamily: "'JetBrains Mono', monospace" }}>{data.stats.waiting.value}</p>
+                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.rose}}>{data.stats.waiting.value}</p>
                     </div>
                   </div>
                 </div>
