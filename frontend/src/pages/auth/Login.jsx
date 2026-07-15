@@ -1,11 +1,11 @@
 import { Eye, EyeOff, ShieldCheck, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+// import axios from "axios";
 
 import { useAuth } from "../../context/AuthContext";
 import { Navigate } from "react-router-dom";
-
+import api from "../../services/api";
    
 function Login() {
     
@@ -29,15 +29,12 @@ function Login() {
     setError("");
 
     try {
-      const { data } = await axios.post(
-        "http://localhost:5000/api/auth/login",
-        {
+      const { data } = await api.post("/auth/login", {
           email,
           password,
-        }
-      );
+      });
 
-      login(data.user, data.token);
+      login(data.user, data.token,"admin");
 
       navigate("/admin");
     } catch (err) {
@@ -47,6 +44,13 @@ function Login() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSSO = (e) => {
+    e.preventDefault();
+
+    window.location.href =
+      `${import.meta.env.VITE_API_URL}/auth/sso/login?type=admin`;
   };
 
    if (user) {
@@ -160,6 +164,13 @@ function Login() {
           )}
 
         </button>
+        <button
+        type="button"
+        onClick={handleSSO}
+        className="w-full mt-4 border border-teal-600 text-teal-700 hover:bg-teal-50 rounded-xl py-3 font-semibold"
+    >
+        Continue with Plaksha SSO
+    </button>
 
         <div className="mt-8 text-center text-gray-400 text-sm">
           Plaksha University

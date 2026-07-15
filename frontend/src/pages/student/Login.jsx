@@ -9,6 +9,13 @@ import { useNavigate } from "react-router-dom";
 export default function StudentLogin() {
   const navigate = useNavigate();
 
+   const handleSSO = (e) => {
+    e.preventDefault();
+
+    window.location.href =
+      `${import.meta.env.VITE_API_URL}/auth/sso/login?type=student`;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-700 via-teal-600 to-emerald-600 flex items-center justify-center p-5">
 
@@ -85,7 +92,7 @@ export default function StudentLogin() {
             </div>
 
             <button
-              onClick={() => navigate("/student")}
+              onClick={handleSSO}
               className="mt-8 w-full bg-teal-600 hover:bg-teal-700 rounded-2xl py-4 text-white font-semibold flex items-center justify-center gap-3 transition-all hover:scale-[1.02]"
             >
 

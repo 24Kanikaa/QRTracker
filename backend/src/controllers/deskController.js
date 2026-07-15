@@ -256,3 +256,25 @@ exports.getJourney = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.getStudents = async (req, res) => {
+  try {
+    const deskService = new DeskService(getDB());
+    const data = await deskService.getStudents(
+      req.query.status || "ALL"
+    );
+
+    res.json({
+      success: true,
+      data,
+    });
+
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};

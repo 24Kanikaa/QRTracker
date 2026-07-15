@@ -111,21 +111,23 @@ module.exports = async (db) => {
 
         await db.query(
             `
-            INSERT INTO users
-            (
-                name,
-                email,
-                password,
-                role
-            )
-            VALUES (?,?,?,?)
-            `,
-            [
-                "Super Admin",
-                "superadmin@plaksha.edu.in",
-                hash,
-                "SUPER_ADMIN"
-            ]
+             INSERT INTO users
+        (
+            name,
+            email,
+            password,
+            role,
+            auth_type
+        )
+        VALUES (?,?,?,?,?)
+        `,
+        [
+            "super",
+            "superadmin@plaksha.edu.in",
+            hash,
+            "ADMIN",
+            "LOCAL"
+        ]
         );
 
     }
@@ -134,36 +136,38 @@ module.exports = async (db) => {
        SETTINGS
     ======================================================= */
 
-    const [settings] = await db.query(
-        "SELECT id FROM settings LIMIT 1"
+const [settings] = await db.query(
+    "SELECT id FROM settings LIMIT 1"
+);
+
+if (!settings.length) {
+
+    await db.query(
+        `
+        INSERT INTO settings
+        (
+            admission_year,
+            admission_dates,
+            active,
+            created_by,
+            updated_by
+        )
+        VALUES
+        (
+            '2026',
+            JSON_ARRAY(
+                CURDATE(),
+                DATE_ADD(CURDATE(), INTERVAL 1 DAY),
+                DATE_ADD(CURDATE(), INTERVAL 2 DAY)
+            ),
+            TRUE,
+            NULL,
+            NULL
+        )
+        `
     );
 
-    if (!settings.length) {
-
-        await db.query(
-            `
-            INSERT INTO settings
-            (
-                university_name,
-                admission_year,
-                admission_date,
-                portal_status,
-                qr_enabled,
-                enforce_order
-            )
-            VALUES
-            (
-                'Plaksha University',
-                '2026',
-                CURDATE(),
-                'OPEN',
-                TRUE,
-                TRUE
-            )
-            `
-        );
-
-    }
+}
 
     /* =======================================================
        DUMMY STUDENTS

@@ -32,13 +32,36 @@ function Sidebar({ open, setOpen }) {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
 
-  const menus = [
-    { name: "Dashboard", icon: LayoutDashboard, path: "/admin" },
-    { name: "Student Wise", icon: Users, path: "/admin/students" },
-    { name: "Desks", icon: Building2, path: "/admin/desks" },
-    { name: "Settings", icon: Settings, path: "/admin/settings" },
-  ];
+const menus = [
+  {
+    name: "Dashboard",
+    path: "/admin",
+    icon: LayoutDashboard,
+    roles: ["SUPER_ADMIN", "ADMIN", "USER"],
+  },
+  {
+    name: "Students",
+    path: "/admin/students",
+    icon: Users,
+    roles: ["SUPER_ADMIN", "ADMIN", "USER"],
+  },
+  {
+    name: "Desks",
+    path: "/admin/desks",
+    icon: Building2,
+    roles: ["SUPER_ADMIN", "ADMIN"],
+  },
+  {
+    name: "Settings",
+    path: "/admin/settings",
+    icon: Settings,
+    roles: ["SUPER_ADMIN", "ADMIN"],
+  },
+];
 
+const visibleMenus = menus.filter((menu) =>
+  menu.roles.includes(user?.role)
+);
   const getInitials = (name = "") =>
   name
     .split(" ")
@@ -128,7 +151,7 @@ function Sidebar({ open, setOpen }) {
 
         {/* Navigation */}
         <nav className="flex-1 px-4 py-6 overflow-y-auto">
-          {menus.map((item) => (
+          {visibleMenus.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}

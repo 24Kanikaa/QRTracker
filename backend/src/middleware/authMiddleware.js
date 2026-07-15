@@ -1,35 +1,39 @@
 const { verifyToken } = require("../utils/jwt");
 
 module.exports = (req, res, next) => {
-    const authHeader = req.headers.authorization;
-
-    //console.log("Authorization Header:", authHeader);
-
-    if (!authHeader) {
-        return res.status(401).json({
-            success: false,
-            message: "Token missing."
-        });
-    }
-
-    const token = authHeader.split(" ")[1];
-
-    //console.log("Token:", token);
 
     try {
-        const decoded = verifyToken(token);
 
-        //console.log("Decoded:", decoded);
+        let token = null;
 
-        req.user = decoded;
+        // Cookie authentication
+        if (req.cookies?.tracker_token) {
+            token = req.cookies.tracker_token;
+        }
+
+        // Authorization header authentication
+        if (!token && req.headers.authorization?.startsWith("Bearer ")) {
+            token = req.headers.authorization.split(" ")[1];
+        }
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: "Authentication required."
+            });
+        }
+
+        req.user = verifyToken(token);
 
         next();
+
     } catch (err) {
-        //console.log("JWT Error:", err);
 
         return res.status(401).json({
             success: false,
-            message: "Invalid token."
+            message: "Invalid or expired token."
         });
+
     }
+
 };

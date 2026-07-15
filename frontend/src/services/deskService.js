@@ -39,3 +39,6 @@ export const getJourney = (email) =>
   api.get("/desks/journey", {
     params: { email },
   });
+
+export const getStudentOverview = () =>
+  api.get("desks/students");

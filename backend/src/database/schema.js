@@ -5,17 +5,19 @@ module.exports = async (db) => {
             id INT AUTO_INCREMENT PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             email VARCHAR(150) UNIQUE NOT NULL,
-            password VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NULL,
             role ENUM('SUPER_ADMIN','ADMIN','USER') DEFAULT 'USER',
             active BOOLEAN DEFAULT TRUE,
+            auth_type ENUM('LOCAL','SSO'),
+            last_login DATETIME NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ON UPDATE CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP
         );
     `);
 
 
-        await db.query(`
+    await db.query(`
             CREATE TABLE IF NOT EXISTS desks (
 
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -43,7 +45,7 @@ module.exports = async (db) => {
             );
         `);
         
-        await db.query(`
+    await db.query(`
         CREATE TABLE IF NOT EXISTS students (
         id INT AUTO_INCREMENT PRIMARY KEY,
 
@@ -115,39 +117,113 @@ module.exports = async (db) => {
         );
 
     `);
+    await db.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admission_year VARCHAR(20) UNIQUE NOT NULL,
+
+        admission_dates JSON NOT NULL,
+
+        active BOOLEAN DEFAULT TRUE,
+
+        created_by INT NULL,
+
+        updated_by INT NULL,
+
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+
+        FOREIGN KEY(created_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL,
+
+        FOREIGN KEY(updated_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL
+    );
+`);
     
     await db.query(`
-        CREATE TABLE IF NOT EXISTS uploads (
+    CREATE TABLE IF NOT EXISTS uploads (
 
-            id INT AUTO_INCREMENT PRIMARY KEY,
+        id INT AUTO_INCREMENT PRIMARY KEY,
 
-            file_name VARCHAR(255),
+        admission_year VARCHAR(20) NOT NULL,
 
-            uploaded_by INT,
+        file_name VARCHAR(255),
 
-            total_students INT,
+        uploaded_by INT,
 
-            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        total_students INT,
 
-            FOREIGN KEY(uploaded_by)
+        created_by INT NULL,
+
+        updated_by INT NULL,
+
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+
+        FOREIGN KEY(admission_year)
+            REFERENCES settings(admission_year)
+            ON DELETE CASCADE,
+
+        FOREIGN KEY(uploaded_by)
             REFERENCES users(id)
-        );
-    `);
+            ON DELETE SET NULL,
+
+        FOREIGN KEY(created_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL,
+
+        FOREIGN KEY(updated_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL
+    );
+`);
 
     await db.query(`
-        CREATE TABLE IF NOT EXISTS settings (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            university_name VARCHAR(150),
-            admission_year VARCHAR(20),
-            admission_date DATE,
-            portal_status ENUM('OPEN','CLOSED') DEFAULT 'OPEN',
-            qr_enabled BOOLEAN DEFAULT TRUE,
-            enforce_order BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                ON UPDATE CURRENT_TIMESTAMP
-        );
-    `);
+        CREATE TABLE IF NOT EXISTS activity_logs (
+
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    module ENUM(
+        'USER',
+        'DESK',
+        'STUDENT',
+        'ONBOARDING',
+        'UPLOAD',
+        'AUTH'
+    ) NOT NULL,
+
+    action ENUM(
+        'CREATE',
+        'UPDATE',
+        'DELETE',
+        'LOGIN',
+        'LOGOUT',
+        'SCAN',
+        'IMPORT'
+    ) NOT NULL,
+
+    reference_id INT NULL,
+
+    description TEXT,
+
+    created_by INT NULL,
+
+    ip_address VARCHAR(100),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(created_by)
+        REFERENCES users(id)
+        ON DELETE SET NULL
+);`);
 
 
     console.log("✅ Tables verified");

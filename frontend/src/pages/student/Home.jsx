@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "../../context/AuthContext";
 import QRScannerModal from "./QRScannerModal";
 import {
     getJourney,
@@ -22,6 +23,8 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
+import { LogOut } from "lucide-react";
+
 const ICONS = {
   gate: DoorOpen,
   admission: FileCheck,
@@ -36,6 +39,7 @@ const ICONS = {
   users: Users,
   // home: Home,
 };
+
 
 const COLORS = {
   gate: "bg-blue-100 text-blue-600",
@@ -61,14 +65,7 @@ function getDeskVisual(desk) {
   };
 }
 
-function getLoggedInEmail() {
-  try {
-    const user = JSON.parse(localStorage.getItem("user"));
-    return user?.email || null;
-  } catch {
-    return null;
-  }
-}
+
 
 export default function Home() {
   const [showScanner, setShowScanner] = useState(false);
@@ -77,9 +74,9 @@ export default function Home() {
   const [journey, setJourney] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
+ const { user,logout } = useAuth();
   const fetchJourney = useCallback(async () => {
-    const email = getLoggedInEmail();
+    const email = user?.email;
 
     if (!email) {
       setError("You're not logged in. Please sign in again.");
@@ -93,6 +90,7 @@ export default function Home() {
       const { student: s, journey: j } = res.data.data;
       setStudent(s);
       setJourney(j);
+      console.log(res.data.data);
     } catch (err) {
       setError(err.response?.data?.message || "Unable to load your journey.");
     } finally {
@@ -104,6 +102,13 @@ export default function Home() {
     fetchJourney();
   }, [fetchJourney]);
 
+function getLoggedInEmail() {
+  try {
+    return user?.email || null;
+  } catch {
+    return null;
+  }
+}
 const handleScan = async (qrSlug) => {
   try {
     const email = getLoggedInEmail();
@@ -183,27 +188,40 @@ const handleScan = async (qrSlug) => {
 
         <div className="bg-gradient-to-br from-teal-600 via-teal-600 to-teal-700 rounded-b-[36px] px-6 pt-12 pb-16 text-white shadow-lg">
 
-          <div className="flex gap-4">
+          <div className="flex justify-between items-start">
 
-            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center">
-              <GraduationCap size={30} />
-            </div>
+    <div className="flex gap-4">
 
-            <div>
-            <h3 className="text-2xl font-bold mt-1">
-                Hi, welcome to Plaksha 👋
-              </h3>
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 shadow-lg">
+        <img
+          src="https://media.plaksha.edu.in/logo-white.png"
+          alt="Plaksha"
+          className="h-9 object-contain"
+        />
+      </div>
 
-              <p className="text-teal-100 text-sm">
+        <div>
+            <h3 className="text-xl font-bold mt-1">
+                Hi, Welcome to Plaksha 👋
+            </h3>
 
-               Kanika Kainthla
+            <p className="text-teal-100 text-sm">
+                {user?.name || student?.name || user?.email}
+            </p>
+        </div>
 
-              </p>
+    </div>
 
-              
-            </div>
+<button
+      onClick={logout}
+      title="Logout"
+      aria-label="Logout"
+      className="group flex h-11 w-11 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md transition-all duration-200 hover:bg-red-500 hover:border-red-400 hover:scale-105"
+    >
+      <LogOut className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
+    </button>
 
-          </div>
+</div>
 
         </div>
 
@@ -321,7 +339,7 @@ const handleScan = async (qrSlug) => {
           <div className="bg-white rounded-3xl p-5">
             <h3 className="font-semibold">Need Assistance?</h3>
             <p className="text-sm text-slate-500 mt-2">
-              If you face any issue during the admission process,
+              If you face any issue during the onboarding process,
               please contact the nearest volunteer or visit the Help Desk.
             </p>
           </div>
