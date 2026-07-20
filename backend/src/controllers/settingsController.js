@@ -42,19 +42,30 @@ exports.getUserById = async (req, res) => {
 exports.createUser = async (req, res) => {
     try {
         const settingService = new SettingService(getDB());
-        const users = await settingService.createUser(req.body);
 
-        res.status(201).json({
+        const user = await settingService.createUser(req.body);
+
+        return res.status(201).json({
             success: true,
             message: "User created successfully.",
-            data: users,
+            data: user,
         });
+
     } catch (err) {
         console.error(err);
 
-        res.status(500).json({
+        // Duplicate email
+        if (err.code === "ER_DUP_ENTRY") {
+            return res.status(409).json({
+                success: false,
+                message: "Email already exists.",
+            });
+        }
+
+        // Other errors
+        return res.status(500).json({
             success: false,
-            message: err.message,
+            message: err.message || "Failed to create user.",
         });
     }
 };

@@ -348,7 +348,7 @@ const handleScan = async (qrSlug) => {
             <h3 className="font-semibold">Need Assistance?</h3>
             <p className="text-sm text-slate-500 mt-2">
               If you face any issue during the onboarding process,
-              please contact the nearest volunteer or visit the Help Desk.
+              please contact the nearest volunteer.
             </p>
           </div>
         </div>

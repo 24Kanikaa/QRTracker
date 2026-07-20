@@ -101,8 +101,12 @@ function normalizeOverview(payload) {
       const entry = s.desks?.[col.name];
       cells[col.key] =
         entry && entry.status === "completed" && entry.time
-          ? new Date(entry.time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-          : null;
+          ? new Date(entry.time).toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : null;
     });
 
     return {
@@ -361,9 +365,9 @@ function StudentProfileModal({
             </Section>
 
             {/* Admission */}
-            <Section title="Admission" C={C}>
-              <Info label="Expected Arrival" value={student?.expected_date} />
-              <Info label="Actual Arrival" value={student?.arrival_date} />
+            <Section title="Onboarding" C={C}>
+              <Info label="Expected Arrival" value={formatDate(student?.expected_date)} />
+              <Info label="Actual Arrival" value={formatDate(student?.arrival_date)} />
               <Info label="Admission Year" value={student?.admission_year} />
             </Section>
 
@@ -470,59 +474,50 @@ export default function AdmissionOverviewPage() {
   const [statusTab, setStatusTab] = useState("all");
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const handleFilterToggle = () => {
+  setFilterOpen((prev) => {
+    const next = !prev;
+
+    if (!next) {
+      setActiveCategory(null);
+    }
+
+    return next;
+  });
+};
 
   // which single category dropdown is currently open (desk | gender | remarks | null)
-  const [expandedCategories, setExpandedCategories] = useState({
-    desk: false,
-    gender: false,
-    remarks: false,
-  });
+  const [activeCategory, setActiveCategory] = useState(null);
   const toggleCategory = (key) => {
-    setExpandedCategories((prev) => {
-      const wasOpen = prev[key];
-      return { desk: false, gender: false, remarks: false, [key]: !wasOpen };
-    });
+    setActiveCategory((prev) => (prev === key ? null : key));
   };
   const filterBarRef = useRef(null);
-
-  // close any open category dropdown when clicking outside the filter row
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (filterBarRef.current && !filterBarRef.current.contains(e.target)) {
-        setExpandedCategories({ desk: false, gender: false, remarks: false });
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // activeFilters: [{ category: "desk"|"gender"|"remarks", value: string, label: string }]
   const [activeFilters, setActiveFilters] = useState([]);
 
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [selectedStudent, setSelectedStudent] = useState(null);
-const [studentProfile, setStudentProfile] = useState(null);
-const [loadingProfile, setLoadingProfile] = useState(false);
-const openStudentProfile = async (student) => {
-  try {
-    setSelectedStudent(student);
-    setLoadingProfile(true);
+  const [studentProfile, setStudentProfile] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const openStudentProfile = async (student) => {
+    try {
+      setSelectedStudent(student);
+      setLoadingProfile(true);
 
-    const { data } = await getStudentInfo(student.email);
+      const { data } = await getStudentInfo(student.email);
 
-    setStudentProfile(data.student);
-  } catch (err) {
-    console.error(err);
-    Swal.fire({
-      icon: "error",
-      title: "Unable to load student",
-      text: err.response?.data?.message || "Something went wrong.",
-    });
-  } finally {
-    setLoadingProfile(false);
-  }
-};
+      setStudentProfile(data.student);
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to load student",
+        text: err.response?.data?.message || "Something went wrong.",
+      });
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
 
@@ -653,7 +648,7 @@ const openStudentProfile = async (student) => {
     const isExpected = statusTab === "expected";
     let header, rows;
     if (isExpected) {
-      header = ["#", "Name", "Email", "Admission Day", "Status"];
+      header = ["#", "Name", "Email", "Onboarding Day", "Status"];
       rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), "Awaiting check-in"]);
     } else {
       header = ["#", "Name", "Email", "Progress %", "Current Desk", ...desks.map((d) => d.title), "Remarks"];
@@ -728,7 +723,7 @@ const openStudentProfile = async (student) => {
         </div>
 
         <p className="text-sm mb-4" style={{ color: C.muted }}>
-          Browse onboarding progress by admission day and status.
+          Browse onboarding progress by day and status.
         </p>
 
         {/* ---- error state ---- */}
@@ -771,13 +766,7 @@ const openStudentProfile = async (student) => {
 
                 <div className="flex gap-2.5">
                   <button
-                    onClick={() =>
-                      setFilterOpen((v) => {
-                        const next = !v;
-                        if (!next) setExpandedCategories({ desk: false, gender: false, remarks: false });
-                        return next;
-                      })
-                    }
+                     onClick={handleFilterToggle}
                     className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium transition relative"
                     style={{
                       background: filterOpen ? C.brassSoft : C.panel,
@@ -844,25 +833,45 @@ const openStudentProfile = async (student) => {
                     )}
 
                     {/* ---- side-by-side category pills, each with its own dropdown ---- */}
-                    <div ref={filterBarRef} className="flex flex-wrap gap-2 relative">
-                      {filterCategories.map((cat) => {
-                        const Icon = cat.icon;
-                        const isOpen = expandedCategories[cat.key];
-                        const activeCount = activeFilters.filter((f) => f.category === cat.key).length;
+                    <div ref={filterBarRef} className="space-y-3">
 
-                        return (
-                          <div key={cat.key} className="relative">
+                      {/* Main filter categories */}
+                      <div className="flex items-center gap-2 flex-wrap">
+
+                        {filterCategories.map((cat) => {
+                          const Icon = cat.icon;
+                          const isOpen = activeCategory === cat.key;
+
+                          const activeCount = activeFilters.filter(
+                            (f) => f.category === cat.key
+                          ).length;
+
+                          return (
                             <button
+                              key={cat.key}
                               onClick={() => toggleCategory(cat.key)}
                               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors"
                               style={{
-                                background: isOpen || activeCount > 0 ? C.brassSoft : C.panel2,
-                                borderColor: isOpen || activeCount > 0 ? C.brass : C.hairline,
-                                color: isOpen || activeCount > 0 ? C.brass : C.text,
+                                background:
+                                  isOpen || activeCount > 0
+                                    ? C.brassSoft
+                                    : C.panel2,
+
+                                borderColor:
+                                  isOpen || activeCount > 0
+                                    ? C.brass
+                                    : C.hairline,
+
+                                color:
+                                  isOpen || activeCount > 0
+                                    ? C.brass
+                                    : C.text,
                               }}
                             >
                               <Icon size={15} />
+
                               {cat.label}
+
                               {activeCount > 0 && (
                                 <span
                                   className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
@@ -871,90 +880,171 @@ const openStudentProfile = async (student) => {
                                   {activeCount}
                                 </span>
                               )}
+
                               <ChevronDown
                                 size={14}
                                 style={{
-                                  transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                                  transform: isOpen
+                                    ? "rotate(180deg)"
+                                    : "rotate(0deg)",
                                   transition: "transform 150ms ease",
                                 }}
                               />
                             </button>
+                          );
+                        })}
+                      </div>
 
-                            {isOpen && (
-                              <div
-                                className="absolute z-30 top-full left-0 mt-2 min-w-[220px] max-w-[300px] rounded-xl border p-3"
-                                style={{ background: C.panel, borderColor: C.hairline, boxShadow: C.cardShadow }}
-                              >
-                                <div className="flex flex-wrap gap-2">
-                                  {cat.key === "desk" &&
-                                    desks.map((col) => {
-                                      const DeskIcon = col.icon;
-                                      const active = isFilterSelected("desk", col.key);
-                                      return (
-                                        <button
-                                          key={col.key}
-                                          onClick={() => toggleFilter("desk", col.key, col.title)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                          style={
-                                            active
-                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
-                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
-                                          }
-                                        >
-                                          <DeskIcon size={14} />
-                                          {col.title}
-                                        </button>
-                                      );
-                                    })}
 
-                                  {cat.key === "gender" &&
-                                    ["Male", "Female"].map((g) => {
-                                      const active = isFilterSelected("gender", g.toLowerCase());
-                                      return (
-                                        <button
-                                          key={g}
-                                          onClick={() => toggleFilter("gender", g.toLowerCase(), g)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                          style={
-                                            active
-                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
-                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
-                                          }
-                                        >
-                                          <UserIcon size={14} />
-                                          {g}
-                                        </button>
-                                      );
-                                    })}
+                      {/* Filter options row */}
+                      {activeCategory && (
+                        <div
+                          className="flex flex-wrap items-center gap-2 pt-3"
+                          style={{
+                            borderTop: `1px solid ${C.hairline}`,
+                          }}
+                        >
 
-                                  {cat.key === "remarks" &&
-                                    [
-                                      { value: "yes", label: "Has remarks" },
-                                      { value: "no", label: "No remarks" },
-                                    ].map((r) => {
-                                      const active = isFilterSelected("remarks", r.value);
-                                      return (
-                                        <button
-                                          key={r.value}
-                                          onClick={() => toggleFilter("remarks", r.value, r.label)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                          style={
-                                            active
-                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
-                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
-                                          }
-                                        >
-                                          {r.value === "yes" ? <Check size={14} /> : <Minus size={14} />}
-                                          {r.label}
-                                        </button>
-                                      );
-                                    })}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                          {/* DESK OPTIONS */}
+                          {activeCategory === "desk" &&
+                            desks.map((col) => {
+                              const DeskIcon = col.icon;
+
+                              const active = isFilterSelected(
+                                "desk",
+                                col.key
+                              );
+
+                              return (
+                                <button
+                                  key={col.key}
+                                  onClick={() =>
+                                    toggleFilter(
+                                      "desk",
+                                      col.key,
+                                      col.title
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                  style={
+                                    active
+                                      ? {
+                                          background: C.brass,
+                                          borderColor: C.brass,
+                                          color: "#fff",
+                                        }
+                                      : {
+                                          background: C.panel2,
+                                          borderColor: C.hairline,
+                                          color: C.text,
+                                        }
+                                  }
+                                >
+                                  <DeskIcon size={14} />
+                                  {col.title}
+                                </button>
+                              );
+                            })}
+
+
+                          {/* GENDER OPTIONS */}
+                          {activeCategory === "gender" &&
+                            ["Male", "Female"].map((g) => {
+                              const value = g.toLowerCase();
+
+                              const active = isFilterSelected(
+                                "gender",
+                                value
+                              );
+
+                              return (
+                                <button
+                                  key={g}
+                                  onClick={() =>
+                                    toggleFilter(
+                                      "gender",
+                                      value,
+                                      g
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                  style={
+                                    active
+                                      ? {
+                                          background: C.brass,
+                                          borderColor: C.brass,
+                                          color: "#fff",
+                                        }
+                                      : {
+                                          background: C.panel2,
+                                          borderColor: C.hairline,
+                                          color: C.text,
+                                        }
+                                  }
+                                >
+                                  <UserIcon size={14} />
+                                  {g}
+                                </button>
+                              );
+                            })}
+
+
+                          {/* REMARKS OPTIONS */}
+                          {activeCategory === "remarks" &&
+                            [
+                              {
+                                value: "yes",
+                                label: "Has remarks",
+                              },
+                              {
+                                value: "no",
+                                label: "No remarks",
+                              },
+                            ].map((r) => {
+                              const active = isFilterSelected(
+                                "remarks",
+                                r.value
+                              );
+
+                              return (
+                                <button
+                                  key={r.value}
+                                  onClick={() =>
+                                    toggleFilter(
+                                      "remarks",
+                                      r.value,
+                                      r.label
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                  style={
+                                    active
+                                      ? {
+                                          background: C.brass,
+                                          borderColor: C.brass,
+                                          color: "#fff",
+                                        }
+                                      : {
+                                          background: C.panel2,
+                                          borderColor: C.hairline,
+                                          color: C.text,
+                                        }
+                                  }
+                                >
+                                  {r.value === "yes" ? (
+                                    <Check size={10} />
+                                  ) : (
+                                    <Minus size={10} />
+                                  )}
+
+                                  {r.label}
+                                </button>
+                              );
+                            })}
+
+                        </div>
+                      )}
+
                     </div>
                   </div>
                 </div>
@@ -1002,7 +1092,7 @@ const openStudentProfile = async (student) => {
                     <tr>
                       <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>#</th>
                       <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>Student</th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>Admission day</th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>Onboarding day</th>
                       <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>Status</th>
                     </tr>
                   </thead>
@@ -1125,7 +1215,7 @@ const openStudentProfile = async (student) => {
                                       color: C.green,
                                     }}
                                   >
-                                    <Check size={12} />
+                                    <Check size={10} />
                                     Yes
                                   </span>
                                 ) : (
@@ -1137,7 +1227,6 @@ const openStudentProfile = async (student) => {
                                       border: `1px solid ${C.hairline}`,
                                     }}
                                   >
-                                    <Minus size={12} />
                                     No
                                   </span>
                                 )}

@@ -408,7 +408,7 @@ class DeskService {
     // Find desk
     const [desks] = await this.db.query(
       `
-        SELECT id, desk_name
+        SELECT id, desk_name,is_gate
         FROM desks
         WHERE qr_slug = ?
         AND active = 1
@@ -452,6 +452,19 @@ class DeskService {
         `,
       [student.id, desk.id],
     );
+    console.log(desk.id);
+     console.log(desk.is_gate);
+     if (desk.is_gate === 1) {
+      await this.db.query(
+        `
+          UPDATE students
+          SET arrival_date = NOW()
+          WHERE id = ?
+          AND arrival_date IS NULL
+        `,
+        [student.id]
+      );
+    }
 
     return desk;
   }

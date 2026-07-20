@@ -41,6 +41,20 @@ class SettingService {
     }
 
     async createUser(data) {
+        const [existingUsers] = await this.db.query(
+            `
+            SELECT id
+            FROM users
+            WHERE email = ?
+            LIMIT 1
+            `,
+            [data.email]
+        );
+
+        if (existingUsers.length > 0) {
+            throw new Error("Email already used.");
+        }
+
         const password = await bcrypt.hash(data.password, 10);
 
         const [result] = await this.db.query(

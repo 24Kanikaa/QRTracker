@@ -267,51 +267,220 @@ function UserFormModal({ initial, onClose, onSave, C, saving }) {
   const [form, setForm] = useState(
     initial
       ? { ...initial, password: "" }
-      : { name: "", email: "", role: ROLES[0], active: true, password: "" }
+      : {
+          name: "",
+          email: "",
+          role: ROLES[0],
+          active: true,
+          password: "",
+        }
   );
+
+  const [errors, setErrors] = useState({});
+
   const isEdit = Boolean(initial);
-  const valid = form.name.trim() && form.email.trim() && (isEdit || form.password.trim());
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!form.name.trim()) {
+      newErrors.name = "Name is required.";
+    }
+
+    if (!form.email.trim()) {
+      newErrors.email = "Email is required.";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      newErrors.email = "Please enter a valid email address.";
+    }
+
+    if (!isEdit && !form.password.trim()) {
+      newErrors.password = "Password is required.";
+    }
+
+    setErrors(newErrors);
+
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSave = () => {
+    if (saving) return;
+
+    if (validateForm()) {
+      onSave({
+        ...form,
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+      });
+    }
+  };
+  
 
   return (
-    <Modal title={isEdit ? "Edit user" : "Create user"} onClose={onClose} C={C}>
+    <Modal
+      title={isEdit ? "Edit user" : "Create user"}
+      onClose={onClose}
+      C={C}
+    >
       <div className="space-y-4">
+
+        {/* Name */}
         <div>
           <FieldLabel C={C}>Name</FieldLabel>
-          <TextInput C={C} value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Full name" />
+
+          <TextInput
+            C={C}
+            value={form.name}
+            required
+            onChange={(e) => {
+              setForm((f) => ({
+                ...f,
+                name: e.target.value,
+              }));
+
+              if (errors.name) {
+                setErrors((prev) => ({
+                  ...prev,
+                  name: "",
+                }));
+              }
+            }}
+            placeholder="Full name"
+          />
+
+          {errors.name && (
+            <p className="text-xs mt-1" style={{ color: C.rose }}>
+              {errors.name}
+            </p>
+          )}
         </div>
+
+        {/* Email */}
         <div>
           <FieldLabel C={C}>Email</FieldLabel>
-          <TextInput C={C} type="email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="name@univ.edu" />
+
+          <TextInput
+            C={C}
+            type="email"
+            required
+            value={form.email}
+            onChange={(e) => {
+              setForm((f) => ({
+                ...f,
+                email: e.target.value,
+              }));
+
+              if (errors.email) {
+                setErrors((prev) => ({
+                  ...prev,
+                  email: "",
+                }));
+              }
+            }}
+            placeholder="Plaksha Email"
+          />
+
+          {errors.email && (
+            <p className="text-xs mt-1" style={{ color: C.rose }}>
+              {errors.email}
+            </p>
+          )}
         </div>
+
+        {/* Password */}
         <div>
-          <FieldLabel C={C}>{isEdit ? "New password (optional)" : "Password"}</FieldLabel>
+          <FieldLabel C={C}>
+            {isEdit ? "New password (optional)" : "Password"}
+          </FieldLabel>
+
           <TextInput
             C={C}
             type="password"
+            required={!isEdit}
             value={form.password}
-            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-            placeholder={isEdit ? "Leave blank to keep current password" : "Set a password"}
+            onChange={(e) => {
+              setForm((f) => ({
+                ...f,
+                password: e.target.value,
+              }));
+
+              if (errors.password) {
+                setErrors((prev) => ({
+                  ...prev,
+                  password: "",
+                }));
+              }
+            }}
+            placeholder={
+              isEdit
+                ? "Leave blank to keep current password"
+                : "Set a password"
+            }
             autoComplete="new-password"
           />
+
+          {errors.password && (
+            <p className="text-xs mt-1" style={{ color: C.rose }}>
+              {errors.password}
+            </p>
+          )}
         </div>
+
+        {/* Role */}
         <div>
           <FieldLabel C={C}>Role</FieldLabel>
-          <Select C={C} value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
-            {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+
+          <Select
+            C={C}
+            value={form.role}
+            onChange={(e) =>
+              setForm((f) => ({
+                ...f,
+                role: e.target.value,
+              }))
+            }
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
           </Select>
         </div>
+
+        {/* Active */}
         {!isEdit && (
           <div className="flex items-center justify-between pt-1">
             <FieldLabel C={C}>Active</FieldLabel>
-            <Switch checked={form.active} onChange={(v) => setForm((f) => ({ ...f, active: v }))} C={C} />
+
+            <Switch
+              checked={form.active}
+              onChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  active: v,
+                }))
+              }
+              C={C}
+            />
           </div>
         )}
       </div>
 
       <div className="flex justify-end gap-2 mt-6">
-        <GhostButton onClick={onClose} C={C}>Cancel</GhostButton>
-        <PrimaryButton C={C} onClick={() => valid && !saving && onSave(form)}>
-          {saving ? "Saving..." : isEdit ? "Save changes" : "Create user"}
+        <GhostButton onClick={onClose} C={C}>
+          Cancel
+        </GhostButton>
+
+        <PrimaryButton
+          C={C}
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving
+            ? "Saving..."
+            : isEdit
+              ? "Save changes"
+              : "Create user"}
         </PrimaryButton>
       </div>
     </Modal>
@@ -666,31 +835,82 @@ const handleSyncStudents = async (onboarding) => {
 
   /* ---------- user actions (backed by /settings/users) ---------- */
 
-  const saveUser = async (form) => {
-    setSavingUser(true);
-    try {
-      if (userModal === "new") {
-        const payload = { name: form.name, email: form.email, role: form.role, active: form.active, password: form.password };
-        const res = await apiCreateUser(payload);
-        const created = normalizeUser(res.data.data);
-        setUsers((prev) => [created, ...prev]);
-        addLog({ action: "Created", entityType: "User", entityLabel: created.name, details: `Role: ${created.role}` });
-      } else {
-        const payload = { name: form.name, email: form.email, role: form.role };
-        if (form.password.trim()) payload.password = form.password;
-        console.log(payload);
-        await apiUpdateUser(userModal.id, payload);
-        setUsers((prev) => prev.map((u) => (u.id === userModal.id ? { ...u, name: form.name, email: form.email, role: form.role } : u)));
-        addLog({ action: "Updated", entityType: "User", entityLabel: form.name, details: `Role: ${form.role}` });
+const saveUser = async (form) => {
+  setSavingUser(true);
+
+  try {
+    if (userModal === "new") {
+      const payload = {
+        name: form.name,
+        email: form.email,
+        role: form.role,
+        active: form.active,
+        password: form.password,
+      };
+
+      const res = await apiCreateUser(payload);
+
+      const created = normalizeUser(res.data.data);
+
+      setUsers((prev) => [created, ...prev]);
+
+      addLog({
+        action: "Created",
+        entityType: "User",
+        entityLabel: created.name,
+        details: `Role: ${created.role}`,
+      });
+
+    } else {
+      const payload = {
+        name: form.name,
+        email: form.email,
+        role: form.role,
+      };
+
+      if (form.password.trim()) {
+        payload.password = form.password;
       }
-      setUserModal(null);
-    } catch (err) {
-      console.error(err);
-      setUsersError("Couldn't save that user. Please try again.");
-    } finally {
-      setSavingUser(false);
+
+      await apiUpdateUser(userModal.id, payload);
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userModal.id
+            ? {
+                ...u,
+                name: form.name,
+                email: form.email,
+                role: form.role,
+              }
+            : u
+        )
+      );
+
+      addLog({
+        action: "Updated",
+        entityType: "User",
+        entityLabel: form.name,
+        details: `Role: ${form.role}`,
+      });
     }
-  };
+
+    setUserModal(null);
+
+  } catch (err) {
+    console.error(err);
+
+    // Show backend error message
+    const message =
+      err.response?.data?.message ||
+      "Couldn't save that user. Please try again.";
+
+    setUsersError(message);
+
+  } finally {
+    setSavingUser(false);
+  }
+};
 
   const deleteUser = async (user) => {
     try {
