@@ -20,22 +20,38 @@ export const toggleUserStatus = (id,active) =>
 export const getOnboardingSettings = () =>
   api.get("/settings/onboarding");
 
-// Get one onboarding
 export const getOnboardings = (id) =>
   api.get(`/settings/onboarding/${id}`);
 
-// Create onboarding
 export const createOnboarding = (data) =>
   api.post("/settings/onboarding", data);
 
-// Update onboarding
 export const updateOnboarding = (id, data) =>
   api.put(`/settings/onboarding/${id}`, data);
 
-// Delete onboarding
 export const deleteOnboarding = (id) =>
   api.delete(`/settings/onboarding/${id}`);
 
-// Activate / Deactivate onboarding
 export const toggleOnboardingStatus = (id) =>
   api.patch(`/settings/onboarding/${id}/status`);
+
+export const syncStudents = (admissionId) =>
+  api.post(`/settings/${admissionId}/sync-students`);
+
+export const getStudentInfo = (email) =>
+    api.get("settings/students/info", {
+        params: { email },
+    });
+
+export const downloadStudentsCSV = () =>
+  api.get("/settings/students/export", {
+    responseType: "blob",
+  });
+
+export const importStudentsCSV = (settingsId, formData) =>
+  api.post(`/settings/${settingsId}/students/import`, formData);
+
+export const updateStudentRemarks = (id, remarks) =>
+  api.patch(`/settings/student/${id}/remarks`, {
+    remarks,
+  });

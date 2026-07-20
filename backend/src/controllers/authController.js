@@ -195,6 +195,7 @@ exports.microsoftCallback = async (req, res) => {
                 maxAge: 12 * 60 * 60 * 1000
             });
 
+
             return res.redirect(
                 loginType === "admin"
                     ? `${process.env.FRONTEND_URL}/admin`
@@ -230,27 +231,26 @@ exports.microsoftCallback = async (req, res) => {
     }
     catch (err) {
 
-        console.error(err);
-        console.error(err);
+    console.error(err);
 
-        if (err.message === "Student not found.") {
+    if (err.message === "Student not found.") {
+        return res.redirect(
+            `${process.env.FRONTEND_URL}/student-login-error?reason=not-found`
+        );
+    } 
 
-            return res.redirect(
-                `${process.env.FRONTEND_URL}/student-login-error?reason=not-found`
-            );
-
-        }
-
-
-        return res.status(500).json({
-
-            success: false,
-
-            message: err.message
-
-        });
-
+    if (err.message === "User not found") {
+        return res.redirect(
+            `${process.env.FRONTEND_URL}/user-login-error?reason=not-found`
+        );
     }
+
+    return res.status(500).json({
+        success: false,
+        message: err.message
+    });
+
+}
 
 };
 

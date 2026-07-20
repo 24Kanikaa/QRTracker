@@ -26,7 +26,7 @@ import {
 export default function DesksOverview() {
   const { dark, toggleDark, C } = useTheme();
   const { setOpen: setSidebarOpen } = useOutletContext();
-  const [activeTab, setActiveTab] = useState("reports");
+  const [activeTab, setActiveTab] = useState("manage");
   const [desks, setDesks] = useState([]);
   const [report, setReport] = useState({
     summary: {},
@@ -182,7 +182,7 @@ export default function DesksOverview() {
               <button
                 onClick={() => setShowAddDesk(true)}
                 className="h-11 px-5 rounded-xl flex items-center gap-2 font-semibold text-white transition"
-                style={{ background: C.brass }}
+                style={{ background: "teal" }}
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.background = "#0F766E")
                 }
@@ -207,26 +207,27 @@ export default function DesksOverview() {
                 boxShadow: C.cardShadow,
               }}
             >
-              <button
-                onClick={() => setActiveTab("reports")}
-                className="px-6 py-3 rounded-xl font-medium transition-all"
-                style={{
-                  background: activeTab === "reports" ? C.brass : "transparent",
-                  color: activeTab === "reports" ? "#fff" : C.muted,
-                }}
-              >
-                Desk Reports ({report?.deskReports?.length ?? 0})
-              </button>
+              
 
               <button
                 onClick={() => setActiveTab("manage")}
                 className="px-6 py-3 rounded-xl font-medium transition-all"
                 style={{
-                  background: activeTab === "manage" ? C.brass : "transparent",
+                  background: activeTab === "manage" ? "teal" : "transparent",
                   color: activeTab === "manage" ? "#fff" : C.muted,
                 }}
               >
                 Manage Desks ({desks.length})
+              </button>
+              <button
+                onClick={() => setActiveTab("reports")}
+                className="px-6 py-3 rounded-xl font-medium transition-all"
+                style={{
+                  background: activeTab === "reports" ? "teal" : "transparent",
+                  color: activeTab === "reports" ? "#fff" : C.muted,
+                }}
+              >
+                Desk Reports ({report?.deskReports?.length ?? 0})
               </button>
             </div>
           </div>

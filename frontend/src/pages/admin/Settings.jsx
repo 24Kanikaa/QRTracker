@@ -25,12 +25,17 @@ import {
   FileSpreadsheet,
   CheckCircle2,
 } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import Swal from "sweetalert2";
 import {
   getUsers,
   createUser as apiCreateUser,
   updateUser as apiUpdateUser,
   deleteUser as apiDeleteUser,
   toggleUserStatus as apiToggleUserStatus,
+  syncStudents,
+  downloadStudentsCSV ,
+  importStudentsCSV
 } from "../../services/settingServices";
 import {
   getOnboardingSettings as apiGetOnboardingSettings,
@@ -42,41 +47,6 @@ import {
 import { useTheme } from "../../context/ThemeContext";
 
 const ROLES = ["user", "Admin"];
-
-/* ============================================================
-   STUDENT CSV IMPORT — columns match the `students` table:
-   CREATE TABLE IF NOT EXISTS students (
-     roll_number VARCHAR(30) UNIQUE,
-     application_number VARCHAR(30),
-     first_name VARCHAR(100),
-     last_name VARCHAR(100),
-     email VARCHAR(150) UNIQUE,
-     gender ENUM('Male','Female','Other'),
-     expected_date DATE NOT NULL
-   );
-   ============================================================ */
-
-const STUDENT_CSV_COLUMNS = [
-  "roll_number",
-  "application_number",
-  "first_name",
-  "last_name",
-  "email",
-  "gender",
-  "expected_date",
-];
-
-const STUDENT_CSV_SAMPLE_ROW = [
-  "2026CS001",
-  "APP-2026-0001",
-  "Aditi",
-  "Rao",
-  "aditi.rao@example.edu",
-  "Female",
-  "2026-07-18",
-];
-
-const GENDER_VALUES = ["Male", "Female", "Other"];
 
 /* ============================================================
    SEED DATA — logs stay local until a logs endpoint exists.
@@ -132,125 +102,33 @@ function normalizeOnboarding(row) {
   };
 }
 
-function downloadTextFile(content, filename, mime = "text/csv;charset=utf-8;") {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
 
-function downloadSampleStudentCSV() {
-  const csv = [STUDENT_CSV_COLUMNS, STUDENT_CSV_SAMPLE_ROW].map((r) => r.join(",")).join("\n");
-  downloadTextFile(csv, "students-sample.csv");
-}
+const downloadStudentCSV = async () => {
+  try {
+    const { data, headers } = await downloadStudentsCSV();
 
-// Minimal RFC4180-ish CSV parser: handles quoted fields, escaped quotes,
-// commas inside quotes, and both \n and \r\n line endings.
-function parseCSV(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-  let i = 0;
-  const len = text.length;
+    const blob = new Blob([data], { type: "text/csv" });
 
-  while (i < len) {
-    const char = text[i];
-    if (inQuotes) {
-      if (char === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i += 2;
-          continue;
-        }
-        inQuotes = false;
-        i++;
-        continue;
-      }
-      field += char;
-      i++;
-      continue;
-    }
-    if (char === '"') {
-      inQuotes = true;
-      i++;
-      continue;
-    }
-    if (char === ",") {
-      row.push(field);
-      field = "";
-      i++;
-      continue;
-    }
-    if (char === "\r") {
-      i++;
-      continue;
-    }
-    if (char === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-      i++;
-      continue;
-    }
-    field += char;
-    i++;
+    const url = window.URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+
+    const disposition = headers["content-disposition"];
+    const match = disposition?.match(/filename="?(.+?)"?$/);
+
+    link.download = match?.[1] || "students.csv";
+
+    document.body.appendChild(link);
+    link.click();
+
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error(err);
+    alert("Failed to download student CSV.");
   }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows.filter((r) => r.some((c) => c.trim() !== ""));
-}
-
-function validateStudentRow(row) {
-  const errors = [];
-  if (!row.roll_number) errors.push("Missing roll number");
-  if (!row.first_name) errors.push("Missing first name");
-  if (!row.email) errors.push("Missing email");
-  else if (!/^\S+@\S+\.\S+$/.test(row.email)) errors.push("Invalid email");
-  if (!row.expected_date) errors.push("Missing expected date");
-  else if (Number.isNaN(new Date(row.expected_date).getTime())) errors.push("Invalid expected date");
-  if (row.gender && !GENDER_VALUES.includes(row.gender)) errors.push(`Gender must be ${GENDER_VALUES.join("/")}`);
-  return errors;
-}
-
-function parseStudentCSVFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const text = String(evt.target.result);
-        const rows = parseCSV(text);
-        if (rows.length < 1) {
-          reject(new Error("The CSV file looks empty."));
-          return;
-        }
-        const header = rows[0].map((h) => h.trim().toLowerCase());
-        const dataRows = rows.slice(1);
-        const students = dataRows.map((r) => {
-          const obj = {};
-          header.forEach((h, idx) => {
-            obj[h] = (r[idx] || "").trim();
-          });
-          obj._errors = validateStudentRow(obj);
-          return obj;
-        });
-        resolve(students);
-      } catch (err) {
-        reject(err);
-      }
-    };
-    reader.onerror = () => reject(new Error("Couldn't read that file."));
-    reader.readAsText(file);
-  });
-}
+};
 
 /* ============================================================
    SHARED UI PIECES
@@ -315,7 +193,7 @@ function Switch({ checked, onChange, C }) {
   );
 }
 
-function Modal({ title, onClose, children, C, width = 440 }) {
+export function Modal({ title, onClose, children, C, width = 440 }) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -365,7 +243,7 @@ function Select({ C, children, ...rest }) {
   );
 }
 
-function PrimaryButton({ children, onClick, C, type = "button" }) {
+export function PrimaryButton({ children, onClick, C, type = "button" }) {
   return (
     <button type={type} onClick={onClick} className="h-10 px-4 rounded-lg text-sm font-semibold text-white" style={{ background: C.brass }}>
       {children}
@@ -373,7 +251,7 @@ function PrimaryButton({ children, onClick, C, type = "button" }) {
   );
 }
 
-function GhostButton({ children, onClick, C }) {
+export function GhostButton({ children, onClick, C }) {
   return (
     <button type="button" onClick={onClick} className="h-10 px-4 rounded-lg text-sm font-medium" style={{ color: C.muted, background: C.panel2 }}>
       {children}
@@ -444,32 +322,57 @@ function UserFormModal({ initial, onClose, onSave, C, saving }) {
    STUDENT CSV IMPORT PANEL — used inside the onboarding form
    ============================================================ */
 
-function StudentImportPanel({ students, onStudents, C }) {
+function StudentImportPanel({settingsId,initialLastUploadedAt, students, onStudents, C }) {
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState(null);
   const [parsing, setParsing] = useState(false);
+ const [lastUploadedAt, setLastUploadedAt] = useState(initialLastUploadedAt);
 
   const validCount = students.filter((s) => s._errors.length === 0).length;
   const invalidCount = students.length - validCount;
 
-  const handleFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
-    if (!file) return;
-    setParsing(true);
-    setError(null);
-    try {
-      const parsed = await parseStudentCSVFile(file);
-      setFileName(file.name);
-      onStudents(parsed);
-    } catch (err) {
-      setError(err.message || "Couldn't parse that CSV.");
-      onStudents([]);
-      setFileName("");
-    } finally {
-      setParsing(false);
-    }
-  };
+const handleFile = async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = ""; 
+
+  if (!file) return;
+
+  setParsing(true);
+  setError(null);
+  setFileName(file.name);
+
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const { data } = await importStudentsCSV(settingsId,formData);
+    Swal.fire({
+      icon: "success",
+      title: "Upload Completed",
+      html: `
+        <div style="text-align:left">
+          <p><strong>Updated:</strong> ${data.updated}</p>
+          <p><strong>Skipped:</strong> ${data.skipped}</p>
+        </div>
+      `,
+      confirmButtonText: "OK",
+      confirmButtonColor: "#0f766e",
+    });
+    setLastUploadedAt(data.lastUploadedAt);
+    setFileName("");
+  } catch (err) {
+    console.error(err);
+
+    setError(
+      err.response?.data?.message ||
+      "Failed to upload student CSV."
+    );
+
+    setFileName("");
+  } finally {
+    setParsing(false);
+  }
+};
 
   const clear = () => {
     setFileName("");
@@ -481,14 +384,26 @@ function StudentImportPanel({ students, onStudents, C }) {
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <FieldLabel C={C}>Student list (CSV)</FieldLabel>
-        <button type="button" onClick={downloadSampleStudentCSV} className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.brass }}>
-          <Download size={12} /> Download sample CSV
+        <button type="button" onClick={downloadStudentCSV} className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.brass }}>
+          <Download size={12} /> Download student CSV
         </button>
       </div>
 
       <p className="text-xs mb-2" style={{ color: C.mutedSoft }}>
-        Columns: {STUDENT_CSV_COLUMNS.join(", ")}
+       Use the csv to upload the expected date data. Make sure format is correct.
       </p>
+      {lastUploadedAt && (
+      <p
+          className="text-xs mt-2 mb-2"
+          style={{ color: C.mutedSoft }}
+      >
+              Last imported:{" "}
+              {new Date(lastUploadedAt).toLocaleString("en-IN", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+              })}
+          </p>
+      )}
 
       <label
         className="flex items-center justify-center gap-2 h-11 rounded-lg text-sm font-medium cursor-pointer transition"
@@ -628,7 +543,7 @@ function OnboardingFormModal({ initial, onClose, onSave, C, saving }) {
 
         <div className="pt-2" style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
           <div className="pt-4">
-            <StudentImportPanel students={students} onStudents={setStudents} C={C} />
+            <StudentImportPanel settingsId={initial?.id} initialLastUploadedAt={initial.lastUploadedAt} students={students} onStudents={setStudents} C={C} />
           </div>
         </div>
       </div>
@@ -688,6 +603,7 @@ export default function Settings() {
 
   const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [confirmDeleteOnboarding, setConfirmDeleteOnboarding] = useState(null);
+  
 
   const addLog = (entry) => {
     setLogs((prev) => [{ id: nextId(prev), timestamp: new Date(), actor: "You", ...entry }, ...prev]);
@@ -727,6 +643,26 @@ export default function Settings() {
     loadUsers();
     loadOnboardings();
   }, []);
+
+const handleSyncStudents = async (onboarding) => {
+  try {
+    const { data } = await syncStudents(onboarding.id);
+
+    Swal.fire({
+    icon: "success",
+    title: "Sync Complete",
+    html: `
+      <b>${data.inserted}</b> students added<br>
+      <b>${data.updated}</b> students updated
+    `,
+    confirmButtonColor: "#0f766e",
+  });
+
+    loadOnboardings();
+  } catch (err) {
+    alert(err.response?.data?.message || "Failed to sync students.");
+  }
+};
 
   /* ---------- user actions (backed by /settings/users) ---------- */
 
@@ -880,11 +816,12 @@ export default function Settings() {
         String(l.entityLabel).toLowerCase().includes(q)
     );
   }, [logs, logSearch]);
-
+   
+  
   const tabs = [
-    { key: "users", label: "Users", icon: Users },
-    { key: "onboarding", label: "Onboarding Details", icon: Calendar },
-    { key: "logs", label: "Logs", icon: History },
+      
+      { key: "users", label: "Users", icon: Users },{ key: "onboarding", label: "Onboarding Details", icon: Calendar },
+      { key: "logs", label: "Logs", icon: History },
   ];
 
   const roleBadge = { Admin: C.rose, Coordinator: C.brass, "Desk Operator": C.amber, Viewer: C.mutedSoft };
@@ -1127,6 +1064,14 @@ export default function Settings() {
                             <ConfirmDelete C={C} label={o.year} onConfirm={() => deleteOnboarding(o)} onCancel={() => setConfirmDeleteOnboarding(null)} />
                           ) : (
                             <div className="flex items-center justify-end gap-1">
+                             <IconButton
+                                C={C}
+                                icon={RefreshCw}
+                                title="Sync students"
+                                color={C.teal}
+                                onClick={() => handleSyncStudents(o)}
+                              />
+
                               <IconButton C={C} icon={Pencil} title="Edit onboarding" onClick={() => setOnboardingModal(o)} />
                               <IconButton
                                 C={C}

@@ -159,6 +159,7 @@ exports.getOnboarding = async (req, res) => {
         });
     }
 };
+
 exports.createOnboarding = async (req, res) => {
     try {
         const settingService = new SettingService(getDB());
@@ -182,6 +183,7 @@ exports.createOnboarding = async (req, res) => {
         });
     }
 };
+
 exports.updateOnboarding = async (req, res) => {
     try {
         const settingService = new SettingService(getDB());
@@ -205,6 +207,7 @@ exports.updateOnboarding = async (req, res) => {
         });
     }
 };
+
 exports.deleteOnboarding = async (req, res) => {
     try {
         const settingService = new SettingService(getDB());
@@ -224,6 +227,7 @@ exports.deleteOnboarding = async (req, res) => {
         });
     }
 };
+
 exports.toggleOnboardingStatus = async (req, res) => {
     try {
         const settingService = new SettingService(getDB());
@@ -247,82 +251,134 @@ exports.toggleOnboardingStatus = async (req, res) => {
     }
 };
 
-exports.loginUsingSSO= async({ name, email }) =>{
+exports.syncStudents = async (req, res) => {
+    try {
+        const settingService = new SettingService(getDB());
 
-    const [users] = await this.db.query(
-        `SELECT *
-         FROM users
-         WHERE email=?`,
-        [email]
-    );
+        const result = await settingService.syncStudents(req.params.id);
 
-    let user;
+        return res.json({
+            success: true,
+            message: "Students synced successfully.",
+            ...result,
+        });
+    } catch (err) {
+        console.error(err);
 
-    if (!users.length) {
-
-        const [result] = await this.db.query(
-            `
-            INSERT INTO users
-            (
-                name,
-                email,
-                password,
-                role,
-                auth_type,
-                active
-            )
-            VALUES
-            (
-                ?,
-                ?,
-                NULL,
-                'USER',
-                'SSO',
-                TRUE
-            )
-            `,
-            [
-                name,
-                email
-            ]
-        );
-
-        const [newUser] = await this.db.query(
-            `
-            SELECT *
-            FROM users
-            WHERE id=?
-            `,
-            [result.insertId]
-        );
-
-        user = newUser[0];
-
-    } else {
-
-        user = users[0];
-
-        if (!user.active) {
-            throw new Error("User is inactive.");
-        }
-
-        if (user.auth_type !== "SSO") {
-
-            await this.db.query(
-                `
-                UPDATE users
-                SET auth_type='SSO'
-                WHERE id=?
-                `,
-                [user.id]
-            );
-
-            user.auth_type = "SSO";
-
-        }
-
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
     }
+};
 
-    return user;
+exports.getStudentInfo = async (req, res) => {
+    try {
+        const settingService = new SettingService(getDB());
+        const {email}=req.query;
+         if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: "Email is required.",
+            });
+        }
 
-}
+        const student = await settingService.syncStudentInfo(email);
+
+       return res.json({
+            success: true,
+            student,
+        });
+    } catch (err) {
+        console.error(err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
+};
+
+exports.exportStudentsCSV = async (req, res) => {
+
+    try {
+        const settingService = new SettingService(getDB());
+        const csv = await settingService.exportStudentsCSV();
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+            "Content-Disposition",
+            "attachment; filename=students.csv"
+        );
+
+        return res.send(csv);
+    } catch (err) {
+        console.error(err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
+};
+
+exports.importStudentDates = async (req, res) => {
+    try {
+        const settingService = new SettingService(getDB());
+
+        const settingsId = req.params.id;
+
+        const result = await settingService.importStudentDates(
+            req.file,
+            req.user.id,
+            settingsId
+        );
+
+        return res.json({
+            success: true,
+            ...result,
+        });
+
+    } catch (err) {
+        console.error(err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
+};
+
+exports.updateStudentRemarks = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { remarks } = req.body;
+
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: "Student ID is required.",
+            });
+        }
+        const settingService = new SettingService(getDB());
+
+        const result = await settingService.updateStudentRemarks(
+            id,
+            remarks
+        );
+
+        return res.json({
+            success: true,
+            message: "Remarks updated successfully.",
+            student: result,
+        });
+
+    } catch (err) {
+        console.error(err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message,
+        });
+    }
+};

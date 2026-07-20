@@ -45,12 +45,12 @@ module.exports = async (db) => {
             );
         `);
         
-    await db.query(`
+   await db.query(`
         CREATE TABLE IF NOT EXISTS students (
         id INT AUTO_INCREMENT PRIMARY KEY,
 
         roll_number VARCHAR(30) UNIQUE,
-        application_number VARCHAR(30),
+        application_number VARCHAR(30) UNIQUE,
 
         first_name VARCHAR(100),
         last_name VARCHAR(100),
@@ -59,8 +59,18 @@ module.exports = async (db) => {
 
         gender ENUM('Male','Female','Other'),
 
-        expected_date DATE NOT NULL,
-
+        mobile_number VARCHAR(20) NULL,
+        father_name VARCHAR(255) NULL,
+        mother_name VARCHAR(255) NULL,
+        guardian1_mobile VARCHAR(20) NULL,
+        guardian2_mobile VARCHAR(20) NULL,
+        state VARCHAR(100) NULL,
+        country VARCHAR(100) NULL,
+        nationality VARCHAR(100) NULL,
+        settings_id INT NULL,
+        blood_group VARCHAR(20) NULL,
+        expected_date DATE NULL,
+        date_of_birth DATE NULL,
         arrival_date DATETIME NULL,
 
         status ENUM(
@@ -80,10 +90,17 @@ module.exports = async (db) => {
             ON UPDATE CURRENT_TIMESTAMP,
 
         CONSTRAINT fk_student_current_desk
-        FOREIGN KEY(current_desk_id)
-        REFERENCES desks(id)
-        ON DELETE SET NULL
-    );`);
+            FOREIGN KEY (current_desk_id)
+            REFERENCES desks(id)
+            ON DELETE SET NULL,
+
+        CONSTRAINT fk_student_settings
+            FOREIGN KEY (settings_id)
+            REFERENCES settings(id)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE
+    );
+`);
 
     await db.query(`
         CREATE TABLE IF NOT EXISTS logs (
@@ -117,6 +134,7 @@ module.exports = async (db) => {
         );
 
     `);
+
     await db.query(`
     CREATE TABLE IF NOT EXISTS settings (
 
@@ -146,21 +164,22 @@ module.exports = async (db) => {
     );
 `);
     
-    await db.query(`
+ await db.query(`
     CREATE TABLE IF NOT EXISTS uploads (
 
         id INT AUTO_INCREMENT PRIMARY KEY,
 
-        admission_year VARCHAR(20) NOT NULL,
+        settings_id INT NOT NULL,
 
         file_name VARCHAR(255),
 
-        uploaded_by INT,
+        uploaded_by INT NULL,
 
-        total_students INT,
+        total_students INT DEFAULT 0,
+        updated_students INT DEFAULT 0,
+        skipped_students INT DEFAULT 0,
 
         created_by INT NULL,
-
         updated_by INT NULL,
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -168,19 +187,24 @@ module.exports = async (db) => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             ON UPDATE CURRENT_TIMESTAMP,
 
-        FOREIGN KEY(admission_year)
-            REFERENCES settings(admission_year)
-            ON DELETE CASCADE,
+        CONSTRAINT fk_upload_settings
+            FOREIGN KEY (settings_id)
+            REFERENCES settings(id)
+            ON DELETE CASCADE
+            ON UPDATE CASCADE,
 
-        FOREIGN KEY(uploaded_by)
+        CONSTRAINT fk_upload_uploaded_by
+            FOREIGN KEY (uploaded_by)
             REFERENCES users(id)
             ON DELETE SET NULL,
 
-        FOREIGN KEY(created_by)
+        CONSTRAINT fk_upload_created_by
+            FOREIGN KEY (created_by)
             REFERENCES users(id)
             ON DELETE SET NULL,
 
-        FOREIGN KEY(updated_by)
+        CONSTRAINT fk_upload_updated_by
+            FOREIGN KEY (updated_by)
             REFERENCES users(id)
             ON DELETE SET NULL
     );

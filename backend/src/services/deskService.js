@@ -575,6 +575,7 @@ async getStudents(status = "ALL") {
         s.expected_date,
         s.arrival_date,
         s.status,
+        s.remarks,
         d.desk_name AS current_desk
     FROM students s
     LEFT JOIN desks d
@@ -632,6 +633,7 @@ async getStudents(status = "ALL") {
       name: `${student.first_name} ${student.last_name ?? ""}`.trim(),
       email: student.email,
       gender: student.gender,
+      remarks:student.remarks,
       expectedDate: student.expected_date,
       arrivalDate: student.arrival_date,
       currentDesk: student.current_desk,

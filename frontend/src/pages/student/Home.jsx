@@ -6,7 +6,6 @@ import {
     scanDesk,
 } from "../../services/deskService";
 import {
-  GraduationCap,
   Building2,
   DoorOpen,
   FileCheck,
@@ -23,7 +22,7 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
-import { LogOut } from "lucide-react";
+import { LogOut,ExternalLink, X  } from "lucide-react";
 
 const ICONS = {
   gate: DoorOpen,
@@ -74,6 +73,7 @@ export default function Home() {
   const [journey, setJourney] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showLinks, setShowLinks] = useState(false);
  const { user,logout } = useAuth();
   const fetchJourney = useCallback(async () => {
     const email = user?.email;
@@ -190,38 +190,46 @@ const handleScan = async (qrSlug) => {
 
           <div className="flex justify-between items-start">
 
-    <div className="flex gap-4">
+            <div className="flex gap-4">
 
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 shadow-lg">
-        <img
-          src="https://media.plaksha.edu.in/logo-white.png"
-          alt="Plaksha"
-          className="h-9 object-contain"
-        />
-      </div>
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 shadow-lg">
+                <img
+                  src="https://media.plaksha.edu.in/logo-white.png"
+                  alt="Plaksha"
+                  className="h-9 object-contain"
+                />
+              </div>
 
-        <div>
-            <h3 className="text-xl font-bold mt-1">
-                Hi, Welcome to Plaksha 👋
-            </h3>
+                <div>
+                  <h3 className="text-xl font-bold mt-1 mb-1">
+                    Hi, Welcome to Plaksha 👋
+                  </h3>
 
-            <p className="text-teal-100 text-sm">
-                {user?.name || student?.name || user?.email}
-            </p>
-        </div>
+                  <p className="text-teal-100 text-sm font-bold">
+                    {user?.name || student?.name || user?.email}
+                  </p>
 
-    </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowLinks(true)}
+                    className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-white/90 hover:text-white underline underline-offset-4 transition"
+                  >
+                    Important Links
+                  </button>
+                </div>
 
-<button
-      onClick={logout}
-      title="Logout"
-      aria-label="Logout"
-      className="group flex h-11 w-11 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md transition-all duration-200 hover:bg-red-500 hover:border-red-400 hover:scale-105"
-    >
-      <LogOut className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
-    </button>
+            </div>
 
-</div>
+            <button
+                  onClick={logout}
+                  title="Logout"
+                  aria-label="Logout"
+                  className="group flex h-11 w-11 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md transition-all duration-200 hover:bg-red-500 hover:border-red-400 hover:scale-105"
+                >
+                  <LogOut className="h-5 w-5 transition-transform group-hover:translate-x-0.5" />
+                </button>
+
+          </div>
 
         </div>
 
@@ -347,6 +355,86 @@ const handleScan = async (qrSlug) => {
 
       </div>
 
+      {/* important links div */}
+      {showLinks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden">
+
+            <div className="flex items-center justify-between px-6 py-5 border-b">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Important Links
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Quick access to student resources
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowLinks(false)}
+                className="w-9 h-9 rounded-full hover:bg-slate-100 flex items-center justify-center"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+
+              <a
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    Academic Calendar
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Semester schedule & holidays
+                  </p>
+                </div>
+                <ExternalLink size={18} className="text-slate-400" />
+              </a>
+
+              <a
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    Student Handbook
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Campus policies & guidelines
+                  </p>
+                </div>
+                <ExternalLink size={18} className="text-slate-400" />
+              </a>
+
+              <a
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    Campus Map
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Navigate the campus easily
+                  </p>
+                </div>
+                <ExternalLink size={18} className="text-slate-400" />
+              </a>
+
+            </div>
+          </div>
+        </div>
+      )}
       <QRScannerModal
         open={showScanner}
         onClose={() => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Users,
@@ -26,9 +26,17 @@ import {
   ChevronsRight,
   CircleDashed,
   X,
+  MessageSquare,
+  Check,
+  Minus,
+  User as UserIcon,
+  Tag,
 } from "lucide-react";
-import { getStudentOverview } from "../../services/deskService";
+import { getStudentOverview, } from "../../services/deskService";
+import {getStudentInfo,updateStudentRemarks} from  "../../services/settingServices";
+import Swal from "sweetalert2";
 import { useTheme } from "../../context/ThemeContext";
+import { GhostButton,Modal,PrimaryButton } from "./Settings";
 
 
 /* ============================================================
@@ -107,6 +115,7 @@ function normalizeOverview(payload) {
       expectedDate: s.expectedDate,
       arrivalDate: s.arrivalDate,
       currentDesk: s.currentDesk,
+       remarks: s.remarks,
       completedCount,
       totalDesks,
       progress,
@@ -194,6 +203,258 @@ function StudentIdentity({ student, C }) {
   );
 }
 
+function StudentProfileModal({
+  open,
+  student,
+  loading,
+  onClose,
+  C,
+  onRemarksSaved,
+}) {
+
+ const [remarks, setRemarks] = useState("");
+  const [savingRemarks, setSavingRemarks] = useState(false);
+
+  useEffect(() => {
+    setRemarks(student?.remarks || "");
+  }, [student]);
+
+  if (!open) return null;
+  const handleSaveRemarks = async () => {
+    if (!student?.id) return;
+
+    try {
+      setSavingRemarks(true);
+
+      await updateStudentRemarks(student.id, remarks);
+
+      Swal.fire({
+        icon: "success",
+        title: "Remarks saved",
+        text: "Student remarks have been updated successfully.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+
+      // Update the parent/table data
+      onRemarksSaved?.(student.id, remarks);
+
+    } catch (err) {
+      console.error(err);
+
+      Swal.fire({
+        icon: "error",
+        title: "Unable to save remarks",
+        text:
+          err.response?.data?.message ||
+          "Something went wrong while saving remarks.",
+      });
+    } finally {
+      setSavingRemarks(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Student Profile"
+      width={900}
+      onClose={onClose}
+      C={C}
+    >
+      {loading ? (
+        <div className="py-20 text-center text-sm" style={{ color: C.muted }}>
+          Loading student profile...
+        </div>
+      ) : (
+        <>
+          {/* Header */}
+          <div
+            className="rounded-2xl p-5 mb-6 flex items-center justify-between"
+            style={{
+              background: C.panel2,
+              border: `1px solid ${C.hairline}`,
+            }}
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold"
+                style={{
+                  background: C.brassSoft,
+                  color: C.brass,
+                }}
+              >
+                {student?.first_name?.[0]}
+                {student?.last_name?.[0]}
+              </div>
+
+              <div>
+                <h2
+                  className="text-xl font-bold"
+                  style={{ color: C.text }}
+                >
+                  {student?.first_name} {student?.last_name}
+                </h2>
+
+                <p
+                  className="text-sm mt-1"
+                  style={{ color: C.muted }}
+                >
+                  {student?.email}  
+                </p>
+                <p
+                className="font-semibold mt-1"
+                style={{ color: C.text }}
+              >
+                {student?.roll_number || "—"}
+              </p>
+
+                <div className="flex gap-2 mt-2">
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-medium"
+                    style={{
+                      background: C.greenSoft,
+                      color: C.green,
+                    }}
+                  >
+                    {student?.status}
+                  </span>
+
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-medium"
+                    style={{
+                      background: C.panel,
+                      color: C.muted,
+                    }}
+                  >
+                    {student?.admission_year}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sections */}
+          <div className="grid grid-cols-2 gap-5">
+
+            {/* Personal */}
+            <Section title="Personal Information" C={C}>
+              <Info label="Application No." value={student?.application_number} />
+              <Info label="Gender" value={student?.gender} />
+              <Info label="DOB" value={student?.date_of_birth} />
+              <Info label="Blood Group" value={student?.blood_group} />
+              <Info label="Mobile" value={student?.mobile_number} />
+            </Section>
+
+            {/* Parents */}
+            <Section title="Parent Details" C={C}>
+              <Info label="Father" value={student?.father_name} />
+              <Info label="Father Mobile" value={student?.guardian1_mobile} />
+              <Info label="Mother" value={student?.mother_name} />
+              <Info label="Mother Mobile" value={student?.guardian2_mobile} />
+            </Section>
+
+            {/* Address */}
+            <Section title="Location" C={C}>
+              <Info label="State" value={student?.state} />
+              <Info label="Country" value={student?.country} />
+              <Info label="Nationality" value={student?.nationality} />
+            </Section>
+
+            {/* Admission */}
+            <Section title="Admission" C={C}>
+              <Info label="Expected Arrival" value={student?.expected_date} />
+              <Info label="Actual Arrival" value={student?.arrival_date} />
+              <Info label="Admission Year" value={student?.admission_year} />
+            </Section>
+
+          </div>
+
+          {/* Remarks */}
+          <div
+            className="mt-6 rounded-2xl p-5"
+            style={{
+              background: C.panel2,
+              border: `1px solid ${C.hairline}`,
+            }}
+          >
+            <label
+              className="block text-sm font-semibold mb-3"
+              style={{ color: C.text }}
+            >
+              Internal Remarks
+            </label>
+
+            <textarea
+              rows={4}
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Add remarks..."
+              className="w-full rounded-xl p-3 resize-none outline-none"
+              style={{
+                background: C.panel,
+                border: `1px solid ${C.hairline}`,
+                color: C.text,
+              }}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <GhostButton C={C} onClick={onClose}>
+              Close
+            </GhostButton>
+
+            <PrimaryButton
+            C={C}
+            onClick={handleSaveRemarks}
+            disabled={savingRemarks}
+          >
+            {savingRemarks ? "Saving..." : "Save Remarks"}
+          </PrimaryButton>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function Section({ title, children, C }) {
+  return (
+    <div
+      className="rounded-2xl p-5"
+      style={{
+        background: C.panel2,
+        border: `1px solid ${C.hairline}`,
+      }}
+    >
+      <h3
+        className="text-sm font-semibold mb-4"
+        style={{ color: C.text }}
+      >
+        {title}
+      </h3>
+
+      <div className="space-y-3">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+
+function Info({ label, value }) {
+    return (
+        <div>
+            <div className="text-xs text-slate-500 mb-1">
+                {label}
+            </div>
+
+            <div className="font-medium">
+                {value || "—"}
+            </div>
+        </div>
+    );
+}
+
 /* ============================================================
    PAGE
    ============================================================ */
@@ -209,10 +470,59 @@ export default function AdmissionOverviewPage() {
   const [statusTab, setStatusTab] = useState("all");
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [deskFilter, setDeskFilter] = useState([]);
+
+  // which single category dropdown is currently open (desk | gender | remarks | null)
+  const [expandedCategories, setExpandedCategories] = useState({
+    desk: false,
+    gender: false,
+    remarks: false,
+  });
+  const toggleCategory = (key) => {
+    setExpandedCategories((prev) => {
+      const wasOpen = prev[key];
+      return { desk: false, gender: false, remarks: false, [key]: !wasOpen };
+    });
+  };
+  const filterBarRef = useRef(null);
+
+  // close any open category dropdown when clicking outside the filter row
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (filterBarRef.current && !filterBarRef.current.contains(e.target)) {
+        setExpandedCategories({ desk: false, gender: false, remarks: false });
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // activeFilters: [{ category: "desk"|"gender"|"remarks", value: string, label: string }]
+  const [activeFilters, setActiveFilters] = useState([]);
+
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [selectedStudent, setSelectedStudent] = useState(null);
+const [studentProfile, setStudentProfile] = useState(null);
+const [loadingProfile, setLoadingProfile] = useState(false);
+const openStudentProfile = async (student) => {
+  try {
+    setSelectedStudent(student);
+    setLoadingProfile(true);
 
+    const { data } = await getStudentInfo(student.email);
+
+    setStudentProfile(data.student);
+  } catch (err) {
+    console.error(err);
+    Swal.fire({
+      icon: "error",
+      title: "Unable to load student",
+      text: err.response?.data?.message || "Something went wrong.",
+    });
+  } finally {
+    setLoadingProfile(false);
+  }
+};
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
 
@@ -238,7 +548,7 @@ export default function AdmissionOverviewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedDate, statusTab, deskFilter]);
+  }, [search, selectedDate, statusTab, activeFilters]);
 
   const dates = useMemo(
     () => Array.from(new Set(students.map((s) => s.expectedDate).filter(Boolean))).sort(),
@@ -258,12 +568,50 @@ export default function AdmissionOverviewPage() {
     );
   }, [dateFiltered, search]);
 
+  // ---- derive per-category selections from activeFilters ----
+  const selectedDeskKeys = useMemo(
+    () => activeFilters.filter((f) => f.category === "desk").map((f) => f.value),
+    [activeFilters]
+  );
+  const selectedGenders = useMemo(
+    () => activeFilters.filter((f) => f.category === "gender").map((f) => f.value),
+    [activeFilters]
+  );
+  const selectedRemarks = useMemo(
+    () => activeFilters.filter((f) => f.category === "remarks").map((f) => f.value),
+    [activeFilters]
+  );
+
+  const isFilterSelected = (category, value) =>
+    activeFilters.some((f) => f.category === category && f.value === value);
+
+  const toggleFilter = (category, value, label) => {
+    setActiveFilters((prev) =>
+      prev.some((f) => f.category === category && f.value === value)
+        ? prev.filter((f) => !(f.category === category && f.value === value))
+        : [...prev, { category, value, label }]
+    );
+  };
+
+  const removeFilter = (category, value) => {
+    setActiveFilters((prev) => prev.filter((f) => !(f.category === category && f.value === value)));
+  };
+
+  const clearAllFilters = () => setActiveFilters([]);
+
+  // desks: student must have completed ALL selected desks
+  // gender / remarks: student must match ANY selected value in that category
   const deskFiltered = useMemo(
     () =>
-      deskFilter.length === 0
-        ? searchFiltered
-        : searchFiltered.filter((s) => deskFilter.every((key) => Boolean(s.cells[key]))),
-    [searchFiltered, deskFilter]
+      searchFiltered.filter((s) => {
+        const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+        const genderOk =
+          selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
+        const remarksOk =
+          selectedRemarks.length === 0 || selectedRemarks.includes(s.remarks?.trim() ? "yes" : "no");
+        return deskOk && genderOk && remarksOk;
+      }),
+    [searchFiltered, selectedDeskKeys, selectedGenders, selectedRemarks]
   );
 
   const counts = useMemo(() => {
@@ -301,10 +649,6 @@ export default function AdmissionOverviewPage() {
     { key: "expected", label: "Not Arrived", icon: CircleDashed, count: counts.expected },
   ];
 
-  const toggleDesk = (key) => {
-    setDeskFilter((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  };
-
   const handleExport = () => {
     const isExpected = statusTab === "expected";
     let header, rows;
@@ -312,7 +656,7 @@ export default function AdmissionOverviewPage() {
       header = ["#", "Name", "Email", "Admission Day", "Status"];
       rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), "Awaiting check-in"]);
     } else {
-      header = ["#", "Name", "Email", "Progress %", "Current Desk", ...desks.map((d) => d.title)];
+      header = ["#", "Name", "Email", "Progress %", "Current Desk", ...desks.map((d) => d.title), "Remarks"];
       rows = visibleStudents.map((s, i) => [
         i + 1,
         s.name,
@@ -320,10 +664,17 @@ export default function AdmissionOverviewPage() {
         s.progress,
         s.currentDesk || "—",
         ...desks.map((d) => s.cells[d.key] || "Pending"),
+        s.remarks?.trim() ? "Yes" : "No",
       ]);
     }
     downloadCSV(rows, header, `students-${statusTab}-${selectedDate}.csv`);
   };
+
+  const filterCategories = [
+    { key: "desk", label: "Desk", icon: LayoutGrid },
+    { key: "gender", label: "Gender", icon: UserIcon },
+    { key: "remarks", label: "Remarks", icon: Tag },
+  ];
 
   return (
     <div style={{ background: C.bg, minHeight: "100%" }} className="transition-colors duration-300 p-6 md:p-10">
@@ -420,7 +771,13 @@ export default function AdmissionOverviewPage() {
 
                 <div className="flex gap-2.5">
                   <button
-                    onClick={() => setFilterOpen((v) => !v)}
+                    onClick={() =>
+                      setFilterOpen((v) => {
+                        const next = !v;
+                        if (!next) setExpandedCategories({ desk: false, gender: false, remarks: false });
+                        return next;
+                      })
+                    }
                     className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium transition relative"
                     style={{
                       background: filterOpen ? C.brassSoft : C.panel,
@@ -430,12 +787,12 @@ export default function AdmissionOverviewPage() {
                   >
                     <SlidersHorizontal size={16} />
                     Filters
-                    {deskFilter.length > 0 && (
+                    {activeFilters.length > 0 && (
                       <span
                         className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
                         style={{ background: C.brass }}
                       >
-                        {deskFilter.length}
+                        {activeFilters.length}
                       </span>
                     )}
                   </button>
@@ -450,42 +807,152 @@ export default function AdmissionOverviewPage() {
                 </div>
               </div>
 
-              {/* expandable desk filter panel */}
+              {/* expandable filter panel: compact side-by-side category pills, each with its own dropdown */}
               <div className={`grid transition-all duration-300 ease-out ${filterOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0"}`}>
-                <div className="overflow-hidden">
+                <div className={filterOpen ? "overflow-visible" : "overflow-hidden"}>
                   <div className="pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.muted }}>
-                        Filter by desk checked in
-                      </p>
-                      {deskFilter.length > 0 && (
+
+                    {/* active filter chips */}
+                    {activeFilters.length > 0 && (
+                      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+                        <div className="flex flex-wrap gap-2">
+                          {activeFilters.map((f) => (
+                            <span
+                              key={`${f.category}-${f.value}`}
+                              className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                              style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                            >
+                              {f.label}
+                              <button
+                                onClick={() => removeFilter(f.category, f.value)}
+                                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                                style={{ background: C.brass, color: "#fff" }}
+                              >
+                                <X size={10} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
                         <button
-                          onClick={() => setDeskFilter([])}
-                          className="flex items-center gap-1 text-xs font-medium"
+                          onClick={clearAllFilters}
+                          className="flex items-center gap-1 text-xs font-medium shrink-0"
                           style={{ color: C.muted }}
                         >
-                          <X size={12} /> Clear
+                          <X size={12} /> Clear all
                         </button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {desks.map((col) => {
-                        const Icon = col.icon;
-                        const active = deskFilter.includes(col.key);
+                      </div>
+                    )}
+
+                    {/* ---- side-by-side category pills, each with its own dropdown ---- */}
+                    <div ref={filterBarRef} className="flex flex-wrap gap-2 relative">
+                      {filterCategories.map((cat) => {
+                        const Icon = cat.icon;
+                        const isOpen = expandedCategories[cat.key];
+                        const activeCount = activeFilters.filter((f) => f.category === cat.key).length;
+
                         return (
-                          <button
-                            key={col.key}
-                            onClick={() => toggleDesk(col.key)}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                            style={
-                              active
-                                ? { background: C.brass, borderColor: C.brass, color: "#fff" }
-                                : { background: C.panel2, borderColor: C.hairline, color: C.text }
-                            }
-                          >
-                            <Icon size={14} />
-                            {col.title}
-                          </button>
+                          <div key={cat.key} className="relative">
+                            <button
+                              onClick={() => toggleCategory(cat.key)}
+                              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors"
+                              style={{
+                                background: isOpen || activeCount > 0 ? C.brassSoft : C.panel2,
+                                borderColor: isOpen || activeCount > 0 ? C.brass : C.hairline,
+                                color: isOpen || activeCount > 0 ? C.brass : C.text,
+                              }}
+                            >
+                              <Icon size={15} />
+                              {cat.label}
+                              {activeCount > 0 && (
+                                <span
+                                  className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
+                                  style={{ background: C.brass }}
+                                >
+                                  {activeCount}
+                                </span>
+                              )}
+                              <ChevronDown
+                                size={14}
+                                style={{
+                                  transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                                  transition: "transform 150ms ease",
+                                }}
+                              />
+                            </button>
+
+                            {isOpen && (
+                              <div
+                                className="absolute z-30 top-full left-0 mt-2 min-w-[220px] max-w-[300px] rounded-xl border p-3"
+                                style={{ background: C.panel, borderColor: C.hairline, boxShadow: C.cardShadow }}
+                              >
+                                <div className="flex flex-wrap gap-2">
+                                  {cat.key === "desk" &&
+                                    desks.map((col) => {
+                                      const DeskIcon = col.icon;
+                                      const active = isFilterSelected("desk", col.key);
+                                      return (
+                                        <button
+                                          key={col.key}
+                                          onClick={() => toggleFilter("desk", col.key, col.title)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                          style={
+                                            active
+                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                                          }
+                                        >
+                                          <DeskIcon size={14} />
+                                          {col.title}
+                                        </button>
+                                      );
+                                    })}
+
+                                  {cat.key === "gender" &&
+                                    ["Male", "Female"].map((g) => {
+                                      const active = isFilterSelected("gender", g.toLowerCase());
+                                      return (
+                                        <button
+                                          key={g}
+                                          onClick={() => toggleFilter("gender", g.toLowerCase(), g)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                          style={
+                                            active
+                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                                          }
+                                        >
+                                          <UserIcon size={14} />
+                                          {g}
+                                        </button>
+                                      );
+                                    })}
+
+                                  {cat.key === "remarks" &&
+                                    [
+                                      { value: "yes", label: "Has remarks" },
+                                      { value: "no", label: "No remarks" },
+                                    ].map((r) => {
+                                      const active = isFilterSelected("remarks", r.value);
+                                      return (
+                                        <button
+                                          key={r.value}
+                                          onClick={() => toggleFilter("remarks", r.value, r.label)}
+                                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                                          style={
+                                            active
+                                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                                          }
+                                        >
+                                          {r.value === "yes" ? <Check size={14} /> : <Minus size={14} />}
+                                          {r.label}
+                                        </button>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -525,7 +992,7 @@ export default function AdmissionOverviewPage() {
             {visibleStudents.length === 0 ? (
               <div className="rounded-2xl py-16 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
                 <p className="text-sm" style={{ color: C.muted }}>
-                  No students match this search, date, desk and status combination.
+                  No students match this search, date, filter and status combination.
                 </p>
               </div>
             ) : statusTab === "expected" ? (
@@ -541,7 +1008,20 @@ export default function AdmissionOverviewPage() {
                   </thead>
                   <tbody>
                     {paginatedStudents.map((student, index) => (
-                      <tr key={student.id} style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                      <tr
+                          key={student.id}
+                          onClick={() => openStudentProfile(student)}
+                          className="cursor-pointer transition-colors"
+                          style={{
+                              borderBottom: `1px solid ${C.hairline}`,
+                          }}
+                          onMouseEnter={(e) =>
+                              (e.currentTarget.style.background = C.panel2)
+                          }
+                          onMouseLeave={(e) =>
+                              (e.currentTarget.style.background = "transparent")
+                          }
+                      >
                         <td className="px-3 py-3.5">
                           <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium" style={{ background: C.panel2, color: C.muted }}>
                             {rangeStart + index}
@@ -569,6 +1049,7 @@ export default function AdmissionOverviewPage() {
                         <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>#</th>
                         <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[260px]" style={{ color: C.muted }}>Student</th>
                         <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[130px]" style={{ color: C.muted }}>Progress</th>
+                       
                         {desks.map((col, i) => {
                           const Icon = col.icon;
                           const accent = deskAccentPalette[i % deskAccentPalette.length];
@@ -584,14 +1065,36 @@ export default function AdmissionOverviewPage() {
                             </th>
                           );
                         })}
+                        <th className="px-3 py-3.5 text-center w-[110px]">
+                          <div className="flex flex-col items-center gap-1.5">
+                            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.brassSoft }}>
+                              <Tag size={16} style={{ color: C.brass }} />
+                            </div>
+                            <span className="text-xs font-semibold" style={{ color: C.text }}>Remarks</span>
+                          </div>
+                        </th>
                       </tr>
+
                     </thead>
                     <tbody>
                       {paginatedStudents.map((student, index) => {
                         const progress = student.progress;
                         const isComplete = progress >= 100;
                         return (
-                          <tr key={student.id} style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                          <tr
+                            key={student.id}
+                            onClick={() => openStudentProfile(student)}
+                            className="cursor-pointer transition-colors"
+                            style={{
+                                borderBottom: `1px solid ${C.hairline}`,
+                            }}
+                            onMouseEnter={(e) =>
+                                (e.currentTarget.style.background = C.panel2)
+                            }
+                            onMouseLeave={(e) =>
+                                (e.currentTarget.style.background = "transparent")
+                            }
+                          >
                             <td className="px-3 py-3.5">
                               <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium" style={{ background: C.panel2, color: C.muted }}>
                                 {rangeStart + index}
@@ -612,6 +1115,34 @@ export default function AdmissionOverviewPage() {
                             {desks.map((col) => (
                               <td key={col.key} className="px-3.5 py-3.5"><Cell value={student.cells[col.key]} C={C} /></td>
                             ))}
+                            <td className="px-3.5 py-3.5">
+                              <div className="flex justify-center">
+                                {student.remarks?.trim() ? (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                                    style={{
+                                      background: C.greenSoft,
+                                      color: C.green,
+                                    }}
+                                  >
+                                    <Check size={12} />
+                                    Yes
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                                    style={{
+                                      background: C.panel2,
+                                      color: C.mutedSoft,
+                                      border: `1px solid ${C.hairline}`,
+                                    }}
+                                  >
+                                    <Minus size={12} />
+                                    No
+                                  </span>
+                                )}
+                              </div>
+                          </td>
                           </tr>
                         );
                       })}
@@ -689,6 +1220,34 @@ export default function AdmissionOverviewPage() {
           </>
         )}
       </div>
+    <StudentProfileModal
+      open={!!selectedStudent}
+      student={studentProfile}
+      loading={loadingProfile}
+      onClose={() => {
+        setSelectedStudent(null);
+        setStudentProfile(null);
+      }}
+      onRemarksSaved={(studentId, remarks) => {
+      setStudentProfile((prev) => ({
+        ...prev,
+        remarks,
+      }));
+
+      setStudents((prev) =>
+        prev.map((student) =>
+          student.id === studentId
+            ? {
+                ...student,
+                remarks,
+              }
+            : student
+        )
+      );
+    }}
+      C={C}
+    />
     </div>
+    
   );
 }

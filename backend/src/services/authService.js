@@ -51,63 +51,12 @@ class AuthService {
         WHERE email = ?
         `,
         [email]
-    );
+    ); 
+        if(!users.length){
+            throw new Error("User not found");
+        }
 
-    let user;
-
-    if (users.length === 0) {
-
-        const result = await db.query(
-            `
-            INSERT INTO users
-            (
-                name,
-                email,
-                password,
-                role,
-                auth_type,
-                active
-            )
-            VALUES
-            (
-                ?,
-                ?,
-                NULL,
-                'USER',
-                'SSO',
-                TRUE
-            )
-            `,
-            [
-                name,
-                email
-            ]
-        );
-
-        const created = await db.query(
-            `
-            SELECT *
-            FROM users
-            WHERE id = ?
-            `,
-            [result.insertId]
-        );
-
-        user = created[0];
-
-    } else {
-
-        user = users[0];
-
-    }
-
-    if (!user.active) {
-        throw new Error("Your account has been disabled.");
-    }
-
-    delete user.password;
-
-    return user;
+    return users[0];
     }
 
     async studentSSOLogin(email) {

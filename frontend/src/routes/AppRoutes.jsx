@@ -10,6 +10,7 @@ import Home from "../pages/student/Home";
 import Success from "../pages/student/Success";
 import StudentLogin from "../pages/student/Login";
 import StudentLoginError from "../pages/auth/StudentLoginError";
+import UserLoginError from "../pages/auth/UserLoginError";
 
 import AdminLayout from "../layouts/AdminLayout";
 import { AuthProvider } from "../context/AuthContext";
@@ -36,6 +37,11 @@ export default function AppRoutes() {
                 <Route
                     path="/student-login-error"
                     element={<StudentLoginError />}
+                />
+
+                <Route
+                    path="/user-login-error"
+                    element={<UserLoginError />}
                 />
 
                 {/* STUDENT */}

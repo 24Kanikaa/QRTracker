@@ -35,6 +35,7 @@ export const getDeskQR = (id) =>
 export const scanDesk = (data) => {
   return api.post("/desks/scan", data);
 };
+
 export const getJourney = (email) =>
   api.get("/desks/journey", {
     params: { email },
@@ -42,3 +43,5 @@ export const getJourney = (email) =>
 
 export const getStudentOverview = () =>
   api.get("desks/students");
+
+
