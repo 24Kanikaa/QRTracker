@@ -11,11 +11,11 @@ import {
   Library,
   Radio,
   ArrowUpRight,
-  ArrowDownRight,
   Menu,
   Sun,
   Moon,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -25,138 +25,15 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
   RadialBarChart,
   RadialBar,
   PolarAngleAxis,
 } from "recharts";
 import { useTheme } from "../../context/ThemeContext";
-
-/* ---------------------------------------------------------
-   DATASETS
-   "live"    -> today, still filling up
-   "overall" -> historical, keyed by date filter (all / date1 / date2)
-   Same shape for every entry so the UI below never branches on
-   which one is active — it just reads from `data`.
---------------------------------------------------------- */
-
-const DATASETS = {
-  live: {
-    heading: "Cumulative check-ins by hour, today",
-    stats: {
-      expected: { value: "1,200", subtitle: "Students registered", delta: "On target", direction: "up", spark: [{ v: 1180 }, { v: 1185 }, { v: 1190 }, { v: 1195 }, { v: 1198 }, { v: 1200 }, { v: 1200 }] },
-      checkedIn: { value: "845", subtitle: "70% of expected", delta: "+12% / hr", direction: "up", spark: [{ v: 40 }, { v: 135 }, { v: 285 }, { v: 465 }, { v: 555 }, { v: 725 }, { v: 845 }] },
-      completed: { value: "631", subtitle: "Finished all desks", delta: "+8% / hr", direction: "up", spark: [{ v: 20 }, { v: 90 }, { v: 210 }, { v: 340 }, { v: 420 }, { v: 540 }, { v: 631 }] },
-      waiting: { value: "214", subtitle: "Currently in queue", delta: "Rising", direction: "down", spark: [{ v: 20 }, { v: 45 }, { v: 75 }, { v: 125 }, { v: 135 }, { v: 185 }, { v: 214 }] },
-    },
-    arrivalData: [
-      { hour: "8a", cumulative: 40 }, { hour: "9a", cumulative: 135 }, { hour: "10a", cumulative: 285 },
-      { hour: "11a", cumulative: 465 }, { hour: "12p", cumulative: 555 }, { hour: "1p", cumulative: 615 },
-      { hour: "2p", cumulative: 725 }, { hour: "3p", cumulative: 795 }, { hour: "4p", cumulative: 835 }, { hour: "5p", cumulative: 845 },
-    ],
-    overallPct: 53,
-    overallSubtitle: "631 of 1,200 fully onboarded",
-    deskPerformanceRaw: [
-      { name: "Admission", value: 84 }, { name: "Hostel", value: 72 }, { name: "IT Setup", value: 95 },
-      { name: "Mess", value: 58 }, { name: "Library", value: 63 },
-    ],
-    recentStudents: [
-      { name: "Ananya Sharma", id: "AD-2026-0841", desk: "Hostel", time: "10:34 AM", status: "Completed" },
-      { name: "Rohit Verma", id: "AD-2026-0842", desk: "IT Setup", time: "10:31 AM", status: "Completed" },
-      { name: "Priya Nair", id: "AD-2026-0843", desk: "Admission", time: "10:28 AM", status: "In Progress" },
-      { name: "Karan Mehta", id: "AD-2026-0844", desk: "Library", time: "10:22 AM", status: "Completed" },
-      { name: "Simran Kaur", id: "AD-2026-0845", desk: "Mess", time: "10:15 AM", status: "Waiting" },
-    ],
-  },
-
-  overall: {
-    all: {
-      heading: "Cumulative check-ins by hour, across both days",
-      stats: {
-        expected: { value: "1,200", subtitle: "Students registered", delta: "2 days", direction: "up", spark: [{ v: 600 }, { v: 900 }, { v: 1050 }, { v: 1120 }, { v: 1160 }, { v: 1190 }, { v: 1200 }] },
-        checkedIn: { value: "1,198", subtitle: "99.8% of expected", delta: "+1,198 total", direction: "up", spark: [{ v: 300 }, { v: 620 }, { v: 880 }, { v: 1020 }, { v: 1120 }, { v: 1170 }, { v: 1198 }] },
-        completed: { value: "1,178", subtitle: "Finished all desks", delta: "98.3% completion", direction: "up", spark: [{ v: 250 }, { v: 560 }, { v: 820 }, { v: 980 }, { v: 1090 }, { v: 1150 }, { v: 1178 }] },
-        waiting: { value: "20", subtitle: "Never completed", direction: "down", delta: "Follow up", spark: [{ v: 60 }, { v: 48 }, { v: 40 }, { v: 33 }, { v: 27 }, { v: 22 }, { v: 20 }] },
-      },
-      arrivalData: [
-        { hour: "8a", cumulative: 80 }, { hour: "9a", cumulative: 270 }, { hour: "10a", cumulative: 560 },
-        { hour: "11a", cumulative: 900 }, { hour: "12p", cumulative: 1060 }, { hour: "1p", cumulative: 1120 },
-        { hour: "2p", cumulative: 1155 }, { hour: "3p", cumulative: 1180 }, { hour: "4p", cumulative: 1195 }, { hour: "5p", cumulative: 1198 },
-      ],
-      overallPct: 98,
-      overallSubtitle: "1,178 of 1,200 fully onboarded",
-      deskPerformanceRaw: [
-        { name: "Admission", value: 97 }, { name: "Hostel", value: 95 }, { name: "IT Setup", value: 99 },
-        { name: "Mess", value: 91 }, { name: "Library", value: 93 },
-      ],
-      recentStudents: [
-        { name: "Devansh Gupta", id: "AD-2026-0921", desk: "Library", time: "Day 2 · 6:48 PM", status: "Completed" },
-        { name: "Priya Iyer", id: "AD-2026-0918", desk: "Mess", time: "Day 2 · 6:40 PM", status: "Completed" },
-        { name: "Kabir Singh", id: "AD-2026-0902", desk: "IT Setup", time: "Day 1 · 5:52 PM", status: "Completed" },
-        { name: "Meera Nair", id: "AD-2026-0897", desk: "Hostel", time: "Day 1 · 5:31 PM", status: "Completed" },
-        { name: "Ishita Verma", id: "AD-2026-0888", desk: "Admission", time: "Day 1 · 4:12 PM", status: "Waiting" },
-      ],
-    },
-
-    date1: {
-      heading: "Cumulative check-ins by hour, 18 July 2026",
-      stats: {
-        expected: { value: "600", subtitle: "Students registered", delta: "Day 1", direction: "up", spark: [{ v: 300 }, { v: 450 }, { v: 520 }, { v: 560 }, { v: 580 }, { v: 595 }, { v: 600 }] },
-        checkedIn: { value: "600", subtitle: "100% of expected", delta: "All arrived", direction: "up", spark: [{ v: 120 }, { v: 260 }, { v: 400 }, { v: 500 }, { v: 560 }, { v: 590 }, { v: 600 }] },
-        completed: { value: "588", subtitle: "Finished all desks", delta: "98% completion", direction: "up", spark: [{ v: 90 }, { v: 220 }, { v: 360 }, { v: 460 }, { v: 520 }, { v: 570 }, { v: 588 }] },
-        waiting: { value: "12", subtitle: "Never completed", direction: "down", delta: "Follow up", spark: [{ v: 30 }, { v: 24 }, { v: 20 }, { v: 17 }, { v: 15 }, { v: 13 }, { v: 12 }] },
-      },
-      arrivalData: [
-        { hour: "8a", cumulative: 40 }, { hour: "9a", cumulative: 135 }, { hour: "10a", cumulative: 285 },
-        { hour: "11a", cumulative: 465 }, { hour: "12p", cumulative: 540 }, { hour: "1p", cumulative: 575 },
-        { hour: "2p", cumulative: 590 }, { hour: "3p", cumulative: 596 }, { hour: "4p", cumulative: 599 }, { hour: "5p", cumulative: 600 },
-      ],
-      overallPct: 98,
-      overallSubtitle: "588 of 600 fully onboarded",
-      deskPerformanceRaw: [
-        { name: "Admission", value: 99 }, { name: "Hostel", value: 96 }, { name: "IT Setup", value: 100 },
-        { name: "Mess", value: 92 }, { name: "Library", value: 95 },
-      ],
-      recentStudents: [
-        { name: "Kabir Singh", id: "AD-2026-0902", desk: "IT Setup", time: "5:52 PM", status: "Completed" },
-        { name: "Meera Nair", id: "AD-2026-0897", desk: "Hostel", time: "5:31 PM", status: "Completed" },
-        { name: "Ananya Sharma", id: "AD-2026-0891", desk: "Library", time: "5:02 PM", status: "Completed" },
-        { name: "Ishita Verma", id: "AD-2026-0888", desk: "Admission", time: "4:12 PM", status: "Waiting" },
-        { name: "Rohan Mehta", id: "AD-2026-0879", desk: "Mess", time: "3:40 PM", status: "Completed" },
-      ],
-    },
-
-    date2: {
-      heading: "Cumulative check-ins by hour, 19 July 2026",
-      stats: {
-        expected: { value: "600", subtitle: "Students registered", delta: "Day 2", direction: "up", spark: [{ v: 300 }, { v: 450 }, { v: 520 }, { v: 560 }, { v: 585 }, { v: 596 }, { v: 600 }] },
-        checkedIn: { value: "598", subtitle: "99.7% of expected", delta: "2 no-shows", direction: "down", spark: [{ v: 110 }, { v: 250 }, { v: 390 }, { v: 480 }, { v: 545 }, { v: 585 }, { v: 598 }] },
-        completed: { value: "590", subtitle: "Finished all desks", delta: "98.7% completion", direction: "up", spark: [{ v: 80 }, { v: 210 }, { v: 350 }, { v: 450 }, { v: 520 }, { v: 570 }, { v: 590 }] },
-        waiting: { value: "8", subtitle: "Never completed", direction: "down", delta: "Follow up", spark: [{ v: 20 }, { v: 17 }, { v: 14 }, { v: 12 }, { v: 10 }, { v: 9 }, { v: 8 }] },
-      },
-      arrivalData: [
-        { hour: "8a", cumulative: 35 }, { hour: "9a", cumulative: 120 }, { hour: "10a", cumulative: 260 },
-        { hour: "11a", cumulative: 420 }, { hour: "12p", cumulative: 500 }, { hour: "1p", cumulative: 545 },
-        { hour: "2p", cumulative: 570 }, { hour: "3p", cumulative: 588 }, { hour: "4p", cumulative: 595 }, { hour: "5p", cumulative: 598 },
-      ],
-      overallPct: 98,
-      overallSubtitle: "590 of 600 fully onboarded",
-      deskPerformanceRaw: [
-        { name: "Admission", value: 95 }, { name: "Hostel", value: 94 }, { name: "IT Setup", value: 98 },
-        { name: "Mess", value: 90 }, { name: "Library", value: 91 },
-      ],
-      recentStudents: [
-        { name: "Devansh Gupta", id: "AD-2026-0921", desk: "Library", time: "6:48 PM", status: "Completed" },
-        { name: "Priya Iyer", id: "AD-2026-0918", desk: "Mess", time: "6:40 PM", status: "Completed" },
-        { name: "Vivaan Joshi", id: "AD-2026-0913", desk: "Admission", time: "5:10 PM", status: "Completed" },
-        { name: "Simran Kaur", id: "AD-2026-0907", desk: "Hostel", time: "4:45 PM", status: "In Progress" },
-        { name: "Aditya Rao", id: "AD-2026-0904", desk: "IT Setup", time: "4:02 PM", status: "Waiting" },
-      ],
-    },
-  },
-};
+import {
+  getAdmissionDates,
+  getDashboardData,
+} from "../../services/Dashboardservice";
 
 const DESK_ICONS = {
   Admission: Building2,
@@ -166,20 +43,26 @@ const DESK_ICONS = {
   Library: Library,
 };
 
-// First "tab" is a dropdown: today's date (live), then each other date.
-// The button itself always just reads "Day Wise" — it's the list inside
-// the dropdown that shows today's actual date as the selected entry.
-const TODAY_LABEL = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+function formatDateLabel(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
 
-const DAYWISE_OPTIONS = [
-  { key: "live", label: `${TODAY_LABEL} (Today)` },
-  { key: "date1", label: "18 July 2026" },
-  { key: "date2", label: "19 July 2026" },
-];
+function formatNumber(n) {
+  return Number(n || 0).toLocaleString();
+}
+
+function formatTime(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
 
 /* ----------------------------- Chart bits ----------------------------- */
 
 function Sparkline({ data, color }) {
+  if (!data || !data.length) return null;
   return (
     <div style={{ width: 88, height: 34 }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -197,7 +80,10 @@ function Sparkline({ data, color }) {
   );
 }
 
+// Backend currently sends { value, subtitle } only for each stat —
+// delta/direction/spark are optional extras, rendered only when present.
 function StatCard({ title, stat, icon, sparkColor, C }) {
+  const value = typeof stat.value === "number" ? formatNumber(stat.value) : stat.value;
   return (
     <div className="rounded-2xl p-5" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
       <div className="flex items-start justify-between">
@@ -207,23 +93,25 @@ function StatCard({ title, stat, icon, sparkColor, C }) {
         >
           {icon}
         </div>
-        <div
-          className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full"
-          style={{
-            color: stat.direction === "up" ? C.green : C.rose,
-            background: stat.direction === "up" ? C.greenSoft : C.roseSoft,
-          }}
-        >
-          {stat.direction === "up" ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-          {stat.delta}
-        </div>
+        {stat.delta && (
+          <div
+            className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full"
+            style={{
+              color: stat.direction === "down" ? C.rose : C.green,
+              background: stat.direction === "down" ? C.roseSoft : C.greenSoft,
+            }}
+          >
+            <ArrowUpRight size={12} />
+            {stat.delta}
+          </div>
+        )}
       </div>
 
       <p className="text-sm mt-4" style={{ color: C.muted }}>{title}</p>
 
       <div className="flex items-end justify-between mt-1">
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{stat.value}</h2>
+          <h2 className="text-3xl font-semibold tracking-tight" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{value}</h2>
           <p className="text-xs mt-1" style={{ color: C.mutedSoft }}>{stat.subtitle}</p>
         </div>
         <Sparkline data={stat.spark} color={sparkColor} />
@@ -249,7 +137,7 @@ function LiveClock({ C }) {
         </span>
         <span className="text-xs font-semibold tracking-widest" style={{ color: C.clockAccent }}>LIVE</span>
       </div>
-      <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText}}>{time}</p>
+      <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText }}>{time}</p>
       <p className="text-xs mt-0.5" style={{ color: C.clockDate }}>{date}</p>
     </div>
   );
@@ -277,14 +165,27 @@ export default function Dashboard() {
   const { dark, toggleDark, C } = useTheme();
   const { setOpen: setSidebarOpen } = useOutletContext();
 
-  // mode: which tab is active. "daywise" covers Live + individual dates
-  // (chosen via the dropdown), "overall" is the combined view.
+  // mode: "daywise" (a single admission date, possibly today/live) or "overall"
   const [mode, setMode] = useState("daywise");
-  const [daywiseSelection, setDaywiseSelection] = useState("live");
+
+  // [{ date: "2026-07-18", isToday: false }, ...] from admission_year
+  const [admissionDates, setAdmissionDates] = useState([]);
+  const [datesError, setDatesError] = useState(null);
+
+  // The date currently selected in the dropdown, kept in sync with whatever
+  // the backend resolves as `selectedDate` after each dashboard-data fetch.
+  const [daywiseSelection, setDaywiseSelection] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  const isLive = mode === "daywise" && daywiseSelection === "live";
+  const [data, setData] = useState(null);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState(null);
+
+  // isLive comes straight from the backend — true only when the selected
+  // date is genuinely today's admission date (server clock), never a
+  // client-side guess. Overall mode is never "live".
+  const isLive = mode === "daywise" && !!data?.isLive;
 
   // Close the dropdown on outside click.
   useEffect(() => {
@@ -297,33 +198,85 @@ export default function Dashboard() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  function chooseDaywise(key) {
-    // Always fires, even if `key` matches the value already stored —
-    // this is what a native <select> won't do when re-picking the
-    // option that's already selected, which is why Live could get
-    // stuck after visiting Overall.
+  // Load admission dates once, to populate the Day Wise dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setDatesError(null);
+        const res = await getAdmissionDates();
+        if (!cancelled) setAdmissionDates(res.data || []);
+      } catch (err) {
+        if (!cancelled) {
+          setDatesError(err?.response?.data?.message || err.message || "Could not load admission dates");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch dashboard data whenever mode or the selected date changes.
+  // On first daywise load, daywiseSelection is null — the backend resolves
+  // that to today (or a sensible fallback) and reports it via selectedDate.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setDataLoading(true);
+        setDataError(null);
+        const res = await getDashboardData({
+          mode,
+          date: mode === "daywise" ? daywiseSelection : null,
+        });
+        if (cancelled) return;
+        setData(res.data);
+        if (mode === "daywise") {
+          setDaywiseSelection(res.data.selectedDate);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDataError(err?.response?.data?.message || err.message || "Could not load dashboard data");
+        }
+      } finally {
+        if (!cancelled) setDataLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, mode === "daywise" ? daywiseSelection : null]);
+
+  function chooseDaywise(dateKey) {
+    // Always fires, even if dateKey matches what's already selected —
+    // this is what a native <select> won't do when re-picking the same
+    // option, which previously caused Live to get "stuck" after Overall.
     setMode("daywise");
-    setDaywiseSelection(key);
+    setDaywiseSelection(dateKey);
     setDropdownOpen(false);
   }
 
-  // Single source of truth for everything below.
-  const data =
-    mode === "overall"
-      ? DATASETS.overall.all
-      : daywiseSelection === "live"
-      ? DATASETS.live
-      : DATASETS.overall[daywiseSelection];
+  const daywiseOptions = useMemo(
+    () =>
+      admissionDates.map((d) => ({
+        key: d.date,
+        label: d.isToday ? `${formatDateLabel(d.date)} (Today)` : formatDateLabel(d.date),
+      })),
+    [admissionDates]
+  );
 
   const deskDetails = useMemo(() => {
+    if (!data) return [];
     const palette = [C.brass, C.sky, C.green, C.rose, C.violet];
-    const expectedTotal = Number(data.stats.expected.value.replace(/,/g, ""));
-    return data.deskPerformanceRaw.map((d, i) => ({
+    const expectedTotal = Number(data.stats?.expected?.value || 0);
+    return (data.deskPerformanceRaw || []).map((d, i) => ({
       ...d,
       icon: DESK_ICONS[d.name] || Building2,
       color: palette[i % palette.length],
-      expected: expectedTotal,
-      processed: Math.round((expectedTotal * d.value) / 100),
+      expected: d.expected ?? expectedTotal,
+      processed: d.processed ?? Math.round((expectedTotal * d.value) / 100),
     }));
   }, [data, C]);
 
@@ -335,7 +288,7 @@ export default function Dashboard() {
     Waiting: { bg: C.roseSoft, fg: C.rose },
   };
 
-  const daywiseLabel = DAYWISE_OPTIONS.find((o) => o.key === daywiseSelection)?.label;
+  const daywiseLabel = daywiseOptions.find((o) => o.key === daywiseSelection)?.label;
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", transition: "background 0.25s ease" }}>
@@ -391,7 +344,13 @@ export default function Dashboard() {
                     className="absolute top-full left-0 mt-2 rounded-xl overflow-hidden z-20"
                     style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow, minWidth: 170 }}
                   >
-                    {DAYWISE_OPTIONS.map((opt) => {
+                    {datesError && (
+                      <div className="px-4 py-2.5 text-sm" style={{ color: C.rose }}>Couldn't load dates</div>
+                    )}
+                    {!datesError && daywiseOptions.length === 0 && (
+                      <div className="px-4 py-2.5 text-sm" style={{ color: C.mutedSoft }}>No admission dates yet</div>
+                    )}
+                    {daywiseOptions.map((opt) => {
                       const isActive = mode === "daywise" && daywiseSelection === opt.key;
                       return (
                         <button
@@ -424,7 +383,7 @@ export default function Dashboard() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-6">
             <div>
               <div className="flex items-center gap-3">
-                <p className="text-xs  tracking-[0.2em] uppercase" style={{ color: C.brass }}>
+                <p className="text-xs tracking-[0.2em] uppercase" style={{ color: C.brass }}>
                   Onboarding Control Room
                 </p>
                 {isLive && (
@@ -439,19 +398,18 @@ export default function Dashboard() {
               </div>
               <h1
                 className="text-4xl md:text-5xl font-semibold mt-2 mb-5"
-                style={{
-                  color: C.text,
-                  fontFamily: "'Open Sans', sans-serif",
-                }}
+                style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}
               >
-                {mode === "overall" ? "Onboarding Dashboard " : "Onboarding Dashboard (Day Wise)"}
+                {mode === "overall" ? "Onboarding Dashboard" : "Onboarding Dashboard (Day Wise)"}
               </h1>
               <p className="mt-2" style={{ color: C.muted }}>
                 {mode === "overall"
-                  ? "Combined view of onboarding across both admission days"
+                  ? "Combined view of onboarding across all admission dates"
                   : isLive
                   ? "Live monitoring of today's onboarding process across every desk"
-                  : `Onboarding summary for ${daywiseLabel}`}
+                  : daywiseLabel
+                  ? `Onboarding summary for ${daywiseLabel}`
+                  : "Loading…"}
               </p>
             </div>
 
@@ -480,277 +438,260 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Everything below re-mounts (and re-animates) whenever the
-              tab or date filter changes, so it reads as a page change
-              rather than a data swap. */}
-          <div key={`${mode}-${daywiseSelection}`} className="page-transition">
-
-          {/* Overview */}
-          <div className="grid xl:grid-cols-4 md:grid-cols-2 gap-5">
-            <StatCard C={C} title="Expected" stat={data.stats.expected} icon={<Users size={20} />} sparkColor={C.sky} />
-            <StatCard C={C} title="Checked In" stat={data.stats.checkedIn} icon={<UserCheck size={20} />} sparkColor={C.brass} />
-            <StatCard C={C} title="Completed" stat={data.stats.completed} icon={<Building2 size={20} />} sparkColor={C.green} />
-            <StatCard C={C} title="Pending" stat={data.stats.waiting} icon={<Clock3 size={20} />} sparkColor={C.rose} />
-          </div>
-
-          {mode === "daywise" ? (
-            <>
-              {/* Charts row: Arrival Flow + Overall Completion — unchanged from the original layout */}
-              <div className="grid xl:grid-cols-3 gap-5 mt-6">
-                <div className="xl:col-span-2 rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h2 className="text-lg font-semibold" style={{ color: C.text }}>Arrival Flow</h2>
-                      <p className="text-sm mt-1" style={{ color: C.muted }}>{data.heading}</p>
-                    </div>
-                    <Radio size={18} style={{ color: C.brass }} />
-                  </div>
-
-                  <div className="mt-6" style={{ height: 260 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={data.arrivalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="cumFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={C.brass} stopOpacity={0.3} />
-                            <stop offset="100%" stopColor={C.brass} stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.hairlineSoft} vertical={false} />
-                        <XAxis dataKey="hour" stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Area type="monotone" dataKey="cumulative" name="Checked in" stroke={C.brass} strokeWidth={2.5} fill="url(#cumFill)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <h2 className="text-lg font-semibold" style={{ color: C.text }}>Overall Completion</h2>
-                  <p className="text-sm mt-1" style={{ color: C.muted }}>{data.overallSubtitle}</p>
-
-                  <div className="flex-1 flex items-center justify-center" style={{ minHeight: 220 }}>
-                    <div style={{ width: "100%", height: 220, position: "relative" }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "Completed", value: data.overallPct, fill: C.brass }]} startAngle={90} endAngle={-270}>
-                          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                          <RadialBar background={{ fill: C.hairlineSoft }} dataKey="value" cornerRadius={12} />
-                        </RadialBarChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
-                        <span className="text-4xl font-semibold" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.overallPct}%</span>
-                        <span className="text-xs mt-1" style={{ color: C.mutedSoft }}>onboarded</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Recent Students takes the spot the Desk Performance chart used to occupy, next to Desk Report */}
-              <div className="grid xl:grid-cols-3 gap-5 mt-5">
-                <div className="xl:col-span-2 rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <div className="px-6 py-5" style={{ borderBottom: `1px solid ${C.hairline}` }}>
-                    <h2 className="text-lg font-semibold" style={{ color: C.text }}>Recent Students</h2>
-                    <p className="text-sm mt-1" style={{ color: C.muted }}>
-                      {isLive ? "Latest desk activity across campus" : `Desk activity · ${daywiseLabel}`}
-                    </p>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left" style={{ color: C.mutedSoft }}>
-                          <th className="px-6 py-3 font-medium">Student</th>
-                          <th className="px-4 py-3 font-medium">ID</th>
-                          <th className="px-4 py-3 font-medium">Desk</th>
-                          <th className="px-4 py-3 font-medium">Time</th>
-                          <th className="px-4 py-3 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.recentStudents.map((s, i) => (
-                          <tr key={i} style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
-                            <td className="px-6 py-4 font-medium" style={{ color: C.text }}>{s.name}</td>
-                            <td className="px-4 py-4" style={{ color: C.mutedSoft}}>{s.id}</td>
-                            <td className="px-4 py-4" style={{ color: C.muted }}>{s.desk}</td>
-                            <td className="px-4 py-4" style={{ color: C.muted}}>{s.time}</td>
-                            <td className="px-4 py-4">
-                              <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ background: statusStyle[s.status].bg, color: statusStyle[s.status].fg }}>
-                                {s.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-lg font-semibold" style={{ color: C.text }}>Desk Report</h2>
-                    <span className="text-xs font-medium" style={{ color: C.mutedSoft }}>{deskDetails.length} desks</span>
-                  </div>
-                  <p className="text-sm mt-1" style={{ color: C.muted }}>Processed vs. expected, desk by desk</p>
-
-                  <div className="mt-5 space-y-4">
-                    {deskDetails.map((d, i) => {
-                      const Icon = d.icon;
-                      const remaining = d.expected - d.processed;
-                      const statusColor = d.value >= 90 ? C.green : d.value >= 70 ? C.brass : C.rose;
-                      const statusBg = d.value >= 90 ? C.greenSoft : d.value >= 70 ? C.brassSoft : C.roseSoft;
-                      return (
-                        <div key={d.name} className="pb-4" style={{ borderBottom: i < deskDetails.length - 1 ? `1px solid ${C.hairlineSoft}` : "none" }}>
-                          <div className="flex gap-3 items-start">
-                            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${d.color}17`, color: d.color }}>
-                              <Icon size={16} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium truncate" style={{ color: C.text }}>{d.name}</p>
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: statusBg, color: statusColor }}>
-                                  {d.value}%
-                                </span>
-                              </div>
-                              <p className="text-xs mt-0.5" style={{ color: C.muted }}>
-                                <span >{d.processed}</span> of {d.expected} processed
-                              </p>
-                              <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
-                                <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
-                              </div>
-                              <p className="text-xs mt-1.5" style={{ color: remaining === 0 ? C.green : C.mutedSoft }}>
-                                {remaining === 0 ? "All done" : `${remaining} left`}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Overall tab: Desk Performance (older bar-chart design, now with quick stats)
-                  next to Overall Completion (also with quick stats) */}
-              <div className="grid xl:grid-cols-3 gap-5 mt-6">
-                <div className="xl:col-span-2 rounded-2xl p-6" style={{ background: C.panel, }}>
-                  {/* <div className="flex justify-between items-center">
-                    <div>
-                      <h2 className="text-lg font-semibold" style={{ color: C.text }}>Desk Performance</h2>
-                      <p className="text-sm mt-1" style={{ color: C.muted }}>Share of assigned students processed</p>
-                    </div>
-                    <span className="text-xs font-medium" style={{ color: C.mutedSoft }}>{deskDetails.length} desks</span>
-                  </div> */}
-
-                  {/* quick stats */}
-                  {/* {deskStats && (
-                    <div className="grid grid-cols-3 gap-3 mt-5 mb-10">
-                      <div className="rounded-xl p-3" style={{ background: C.panel2, border: `1px solid ${C.hairlineSoft}` }}>
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Top desk</p>
-                        <p className="text-sm font-semibold mt-0.5 truncate" style={{ color: C.text }}>{deskStats.best.name}</p>
-                        <p className="text-xs mt-0.5 font-medium" style={{ color: C.green }}>{deskStats.best.value}%</p>
-                      </div>
-                      <div className="rounded-xl p-3" style={{ background: C.panel2, border: `1px solid ${C.hairlineSoft}` }}>
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Needs attention</p>
-                        <p className="text-sm font-semibold mt-0.5 truncate" style={{ color: C.text }}>{deskStats.worst.name}</p>
-                        <p className="text-xs mt-0.5 font-medium" style={{ color: C.rose }}>{deskStats.worst.value}%</p>
-                      </div>
-                      <div className="rounded-xl p-3" style={{ background: C.panel2, border: `1px solid ${C.hairlineSoft}` }}>
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Average</p>
-                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.text }}>{deskStats.avg}%</p>
-                        <p className="text-xs mt-0.5 font-medium" style={{ color: C.brass }}>across all desks</p>
-                      </div>
-                    </div>
-                  )} */}
-                  
-
-                  <div className="rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-lg font-semibold" style={{ color: C.text }}>Desk Report</h2>
-                    <span className="text-xs font-medium" style={{ color: C.mutedSoft }}>{deskDetails.length} desks</span>
-                  </div>
-                  <p className="text-sm mt-1" style={{ color: C.muted }}>Processed vs. expected, desk by desk</p>
-
-                  <div className="mt-5 space-y-4">
-                    {deskDetails.map((d, i) => {
-                      const Icon = d.icon;
-                      const remaining = d.expected - d.processed;
-                      const statusColor = d.value >= 90 ? C.green : d.value >= 70 ? C.brass : C.rose;
-                      const statusBg = d.value >= 90 ? C.greenSoft : d.value >= 70 ? C.brassSoft : C.roseSoft;
-                      return (
-                        <div key={d.name} className="pb-4" style={{ borderBottom: i < deskDetails.length - 1 ? `1px solid ${C.hairlineSoft}` : "none" }}>
-                          <div className="flex gap-3 items-start">
-                            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${d.color}17`, color: d.color }}>
-                              <Icon size={16} />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-sm font-medium truncate" style={{ color: C.text }}>{d.name}</p>
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: statusBg, color: statusColor }}>
-                                  {d.value}%
-                                </span>
-                              </div>
-                              <p className="text-xs mt-0.5" style={{ color: C.muted }}>
-                                <span>{d.processed}</span> of {d.expected} processed
-                              </p>
-                              <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
-                                <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
-                              </div>
-                              <p className="text-xs mt-1.5" style={{ color: remaining === 0 ? C.green : C.mutedSoft }}>
-                                {remaining === 0 ? "All done" : `${remaining} left`}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                </div>
-
-                <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                  <h2 className="text-lg font-semibold" style={{ color: C.text }}>Overall Completion</h2>
-                  <p className="text-sm mt-1" style={{ color: C.muted }}>{data.overallSubtitle}</p>
-
-                  <div className="flex items-center justify-center mt-2" style={{ height: 190 }}>
-                    <div style={{ width: "100%", height: "100%", position: "relative" }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "Completed", value: data.overallPct, fill: C.brass }]} startAngle={90} endAngle={-270}>
-                          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                          <RadialBar background={{ fill: C.hairlineSoft }} dataKey="value" cornerRadius={12} />
-                        </RadialBarChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
-                        <span className="text-4xl font-semibold" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.overallPct}%</span>
-                        <span className="text-xs mt-1" style={{ color: C.mutedSoft }}>onboarded</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* quick stats */}
-                  <div className="grid grid-cols-3 gap-2 mt-2 pt-4" style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
-                    <div className="text-center">
-                      <p className="text-xs" style={{ color: C.mutedSoft }}>Checked in</p>
-                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.stats.checkedIn.value}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs" style={{ color: C.mutedSoft }}>Completed</p>
-                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.green}}>{data.stats.completed.value}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs" style={{ color: C.mutedSoft }}>Waiting</p>
-                      <p className="text-sm font-semibold mt-0.5" style={{ color: C.rose}}>{data.stats.waiting.value}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </>
+          {dataLoading && !data && (
+            <div className="flex items-center gap-2 py-16 justify-center" style={{ color: C.muted }}>
+              <Loader2 size={18} className="animate-spin" />
+              Loading dashboard…
+            </div>
           )}
 
-          </div>
-          {/* end page-transition wrapper */}
+          {dataError && !data && (
+            <div className="rounded-2xl p-6 text-sm" style={{ background: C.roseSoft, color: C.rose }}>
+              Couldn't load dashboard data: {dataError}
+            </div>
+          )}
+
+          {data && (
+            <div key={`${mode}-${daywiseSelection}`} className="page-transition">
+              {/* Overview */}
+              <div className="grid xl:grid-cols-4 md:grid-cols-2 gap-5">
+                <StatCard C={C} title="Expected" stat={data.stats.expected} icon={<Users size={20} />} sparkColor={C.sky} />
+                <StatCard C={C} title="Checked In" stat={data.stats.checkedIn} icon={<UserCheck size={20} />} sparkColor={C.brass} />
+                <StatCard C={C} title="Completed" stat={data.stats.completed} icon={<Building2 size={20} />} sparkColor={C.green} />
+                <StatCard C={C} title="Pending" stat={data.stats.waiting} icon={<Clock3 size={20} />} sparkColor={C.rose} />
+              </div>
+
+              {mode === "daywise" ? (
+                <>
+                  {/* Charts row: Arrival Flow + Overall Completion */}
+                  <div className="grid xl:grid-cols-3 gap-5 mt-6">
+                    <div className="xl:col-span-2 rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h2 className="text-lg font-semibold" style={{ color: C.text }}>Arrival Flow</h2>
+                          <p className="text-sm mt-1" style={{ color: C.muted }}>
+                            Cumulative check-ins by hour, {daywiseLabel}
+                          </p>
+                        </div>
+                        <Radio size={18} style={{ color: C.brass }} />
+                      </div>
+
+                      <div className="mt-6" style={{ height: 260 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={data.arrivalData || []} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="cumFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={C.brass} stopOpacity={0.3} />
+                                <stop offset="100%" stopColor={C.brass} stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.hairlineSoft} vertical={false} />
+                            <XAxis dataKey="hour" stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
+                            <YAxis stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Area type="monotone" dataKey="cumulative" name="Checked in" stroke={C.brass} strokeWidth={2.5} fill="url(#cumFill)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <h2 className="text-lg font-semibold" style={{ color: C.text }}>Overall Completion</h2>
+                      <p className="text-sm mt-1" style={{ color: C.muted }}>{data.overallSubtitle}</p>
+
+                      <div className="flex-1 flex items-center justify-center" style={{ minHeight: 220 }}>
+                        <div style={{ width: "100%", height: 220, position: "relative" }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "Completed", value: data.overallPct, fill: C.brass }]} startAngle={90} endAngle={-270}>
+                              <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                              <RadialBar background={{ fill: C.hairlineSoft }} dataKey="value" cornerRadius={12} />
+                            </RadialBarChart>
+                          </ResponsiveContainer>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
+                            <span className="text-4xl font-semibold" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.overallPct}%</span>
+                            <span className="text-xs mt-1" style={{ color: C.mutedSoft }}>onboarded</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recent Students + Desk Report */}
+                  <div className="grid xl:grid-cols-3 gap-5 mt-5">
+                    <div className="xl:col-span-2 rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <div className="px-6 py-5" style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                        <h2 className="text-lg font-semibold" style={{ color: C.text }}>Recent Students</h2>
+                        <p className="text-sm mt-1" style={{ color: C.muted }}>
+                          {isLive ? "Latest desk activity across campus" : `Desk activity · ${daywiseLabel}`}
+                        </p>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left" style={{ color: C.mutedSoft }}>
+                              <th className="px-6 py-3 font-medium">Student</th>
+                              <th className="px-4 py-3 font-medium">ID</th>
+                              <th className="px-4 py-3 font-medium">Desk</th>
+                              <th className="px-4 py-3 font-medium">Time</th>
+                              <th className="px-4 py-3 font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(data.recentStudents || []).length === 0 && (
+                              <tr>
+                                <td colSpan={5} className="px-6 py-6 text-center" style={{ color: C.mutedSoft }}>
+                                  No scans yet for this date
+                                </td>
+                              </tr>
+                            )}
+                            {(data.recentStudents || []).map((s, i) => (
+                              <tr key={i} style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
+                                <td className="px-6 py-4 font-medium" style={{ color: C.text }}>{s.name}</td>
+                                <td className="px-4 py-4" style={{ color: C.mutedSoft }}>{s.id}</td>
+                                <td className="px-4 py-4" style={{ color: C.muted }}>{s.desk}</td>
+                                <td className="px-4 py-4" style={{ color: C.muted }}>{formatTime(s.time)}</td>
+                                <td className="px-4 py-4">
+                                  <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ background: statusStyle[s.status]?.bg, color: statusStyle[s.status]?.fg }}>
+                                    {s.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-lg font-semibold" style={{ color: C.text }}>Desk Report</h2>
+                        <span className="text-xs font-medium" style={{ color: C.mutedSoft }}>{deskDetails.length} desks</span>
+                      </div>
+                      <p className="text-sm mt-1" style={{ color: C.muted }}>Processed vs. expected, desk by desk</p>
+
+                      <div className="mt-5 space-y-4">
+                        {deskDetails.map((d, i) => {
+                          const Icon = d.icon;
+                          const remaining = d.expected - d.processed;
+                          const statusColor = d.value >= 90 ? C.green : d.value >= 70 ? C.brass : C.rose;
+                          const statusBg = d.value >= 90 ? C.greenSoft : d.value >= 70 ? C.brassSoft : C.roseSoft;
+                          return (
+                            <div key={d.id ?? d.name} className="pb-4" style={{ borderBottom: i < deskDetails.length - 1 ? `1px solid ${C.hairlineSoft}` : "none" }}>
+                              <div className="flex gap-3 items-start">
+                                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${d.color}17`, color: d.color }}>
+                                  <Icon size={16} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-medium truncate" style={{ color: C.text }}>{d.name}</p>
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: statusBg, color: statusColor }}>
+                                      {d.value}%
+                                    </span>
+                                  </div>
+                                  <p className="text-xs mt-0.5" style={{ color: C.muted }}>
+                                    <span>{formatNumber(d.processed)}</span> of {formatNumber(d.expected)} processed
+                                  </p>
+                                  <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
+                                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
+                                  </div>
+                                  <p className="text-xs mt-1.5" style={{ color: remaining === 0 ? C.green : C.mutedSoft }}>
+                                    {remaining === 0 ? "All done" : `${formatNumber(remaining)} left`}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="grid xl:grid-cols-3 gap-5 mt-6">
+                  <div className="xl:col-span-2 rounded-2xl p-6" style={{ background: C.panel }}>
+                    <div className="rounded-2xl p-6" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-lg font-semibold" style={{ color: C.text }}>Desk Report</h2>
+                        <span className="text-xs font-medium" style={{ color: C.mutedSoft }}>{deskDetails.length} desks</span>
+                      </div>
+                      <p className="text-sm mt-1" style={{ color: C.muted }}>Processed vs. expected, desk by desk</p>
+
+                      <div className="mt-5 space-y-4">
+                        {deskDetails.map((d, i) => {
+                          const Icon = d.icon;
+                          const remaining = d.expected - d.processed;
+                          const statusColor = d.value >= 90 ? C.green : d.value >= 70 ? C.brass : C.rose;
+                          const statusBg = d.value >= 90 ? C.greenSoft : d.value >= 70 ? C.brassSoft : C.roseSoft;
+                          return (
+                            <div key={d.id ?? d.name} className="pb-4" style={{ borderBottom: i < deskDetails.length - 1 ? `1px solid ${C.hairlineSoft}` : "none" }}>
+                              <div className="flex gap-3 items-start">
+                                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${d.color}17`, color: d.color }}>
+                                  <Icon size={16} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-sm font-medium truncate" style={{ color: C.text }}>{d.name}</p>
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: statusBg, color: statusColor }}>
+                                      {d.value}%
+                                    </span>
+                                  </div>
+                                  <p className="text-xs mt-0.5" style={{ color: C.muted }}>
+                                    <span>{formatNumber(d.processed)}</span> of {formatNumber(d.expected)} processed
+                                  </p>
+                                  <div className="h-1.5 rounded-full mt-2 overflow-hidden" style={{ background: C.hairlineSoft }}>
+                                    <div className="h-full rounded-full transition-all duration-300" style={{ width: `${d.value}%`, background: d.color }} />
+                                  </div>
+                                  <p className="text-xs mt-1.5" style={{ color: remaining === 0 ? C.green : C.mutedSoft }}>
+                                    {remaining === 0 ? "All done" : `${formatNumber(remaining)} left`}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                    <h2 className="text-lg font-semibold" style={{ color: C.text }}>Overall Completion</h2>
+                    <p className="text-sm mt-1" style={{ color: C.muted }}>{data.overallSubtitle}</p>
+
+                    <div className="flex items-center justify-center mt-2" style={{ height: 190 }}>
+                      <div style={{ width: "100%", height: "100%", position: "relative" }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "Completed", value: data.overallPct, fill: C.brass }]} startAngle={90} endAngle={-270}>
+                            <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                            <RadialBar background={{ fill: C.hairlineSoft }} dataKey="value" cornerRadius={12} />
+                          </RadialBarChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
+                          <span className="text-4xl font-semibold" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.overallPct}%</span>
+                          <span className="text-xs mt-1" style={{ color: C.mutedSoft }}>onboarded</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mt-2 pt-4" style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
+                      <div className="text-center">
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>Checked in</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{formatNumber(data.stats.checkedIn.value)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>Completed</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.green }}>{formatNumber(data.stats.completed.value)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>Waiting</p>
+                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.rose }}>{formatNumber(data.stats.waiting.value)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
