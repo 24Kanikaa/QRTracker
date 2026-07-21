@@ -135,7 +135,6 @@ class SettingService {
         );
     }
     async getOnboardingSettings() {
-
     const [rows] = await this.db.query(`
         SELECT
             s.id,
@@ -153,10 +152,33 @@ class SettingService {
         ORDER BY s.admission_year DESC
     `);
 
-    return rows.map(row => ({
-        ...row,
-        admission_dates: JSON.parse(row.admission_dates || "[]")
-    }));
+    return rows.map(row => {
+        try {
+            const parsedDates = JSON.parse(
+                row.admission_dates || "[]"
+            );
+
+            return {
+                ...row,
+                admission_dates: parsedDates
+            };
+
+        } catch (error) {
+            console.error(
+                "❌ INVALID admission_dates JSON",
+                {
+                    id: row.id,
+                    admission_year: row.admission_year,
+                    rawValue: row.admission_dates
+                }
+            );
+
+            return {
+                ...row,
+                admission_dates: []
+            };
+        }
+    });
 }
 async getOnboarding(id) {
 
