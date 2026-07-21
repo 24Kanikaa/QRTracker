@@ -344,7 +344,7 @@ function StudentProfileModal({
             <Section title="Personal Information" C={C}>
               <Info label="Application No." value={student?.application_number} />
               <Info label="Gender" value={student?.gender} />
-              <Info label="DOB" value={student?.date_of_birth} />
+              <Info label="DOB" value={formatDate(student?.date_of_birth)} />
               <Info label="Blood Group" value={student?.blood_group} />
               <Info label="Mobile" value={student?.mobile_number} />
             </Section>

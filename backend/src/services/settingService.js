@@ -523,8 +523,7 @@ async exportStudentsCSV() {
     return csv;
 }
 
-async importStudentDates(file,userId,setting) {
-
+async importStudentDates(file, userId, setting) {
     if (!file) {
         throw new Error("CSV file is required.");
     }
@@ -533,26 +532,45 @@ async importStudentDates(file,userId,setting) {
 
     const rows = text
         .split(/\r?\n/)
-        .filter(Boolean);
+        .filter(row => row.trim());
 
-    const header = rows.shift().split(",").map(h => h.trim());
+    const header = rows
+        .shift()
+        .split(",")
+        .map(h => h.trim());
 
-    // console.log("Header:", header);
+    const appIndex =
+        header.indexOf("application_number");
 
-    const appIndex = header.indexOf("application_number");
-    const emailIndex = header.indexOf("email");
-    const expectedIndex = header.indexOf("expected_date");
+    const emailIndex =
+        header.indexOf("email");
+
+    const expectedIndex =
+        header.indexOf("expected_date");
 
     let updated = 0;
     let skipped = 0;
 
     for (const row of rows) {
-
         const cols = row.split(",");
 
-        const applicationNumber = cols[appIndex]?.trim();
-        const email = cols[emailIndex]?.trim();
-        const expectedDate = cols[expectedIndex]?.trim();
+        const applicationNumber =
+            cols[appIndex]?.trim();
+
+        const email =
+            cols[emailIndex]?.trim();
+
+        let expectedDate =
+            cols[expectedIndex]?.trim();
+
+
+        if (
+            !applicationNumber &&
+            !email
+        ) {
+            skipped++;
+            continue;
+        }
 
 
         if (!expectedDate) {
@@ -560,81 +578,126 @@ async importStudentDates(file,userId,setting) {
             continue;
         }
 
-        const [result] = await this.db.query(
+
+        // Convert DD-MM-YYYY to YYYY-MM-DD
+        if (
+            /^\d{2}-\d{2}-\d{4}$/
+                .test(expectedDate)
+        ) {
+            const [
+                day,
+                month,
+                year
+            ] =
+                expectedDate.split("-");
+
+            expectedDate =
+                `${year}-${month}-${day}`;
+        }
+
+
+        // Validate final date format
+        if (
+            !/^\d{4}-\d{2}-\d{2}$/
+                .test(expectedDate)
+        ) {
+            skipped++;
+            continue;
+        }
+
+
+        const [result] =
+            await this.db.query(
+                `
+                UPDATE students
+                SET expected_date = ?
+                WHERE
+                    (
+                        application_number = ?
+                        AND ? IS NOT NULL
+                        AND ? != ''
+                    )
+                    OR
+                    (
+                        email = ?
+                        AND ? IS NOT NULL
+                        AND ? != ''
+                    )
+                `,
+                [
+                    expectedDate,
+
+                    applicationNumber,
+                    applicationNumber,
+                    applicationNumber,
+
+                    email,
+                    email,
+                    email
+                ]
+            );
+
+
+        if (
+            result.affectedRows > 0
+        ) {
+            updated++;
+        } else {
+            skipped++;
+        }
+    }
+
+
+    const totalStudents =
+        updated + skipped;
+
+
+    const [uploadResult] =
+        await this.db.query(
             `
-            UPDATE students
-            SET expected_date = ?
-            WHERE application_number = ?
-               OR email = ?
+            INSERT INTO uploads (
+                settings_id,
+                file_name,
+                uploaded_by,
+                total_students,
+                updated_students,
+                skipped_students,
+                created_by,
+                updated_by
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `,
             [
-                expectedDate,
-                applicationNumber,
-                email
+                setting,
+                file.originalname,
+                userId,
+                totalStudents,
+                updated,
+                skipped,
+                userId,
+                userId
             ]
         );
 
 
-        if (result.affectedRows) {
+    const [[upload]] =
+        await this.db.query(
+            `
+            SELECT created_at
+            FROM uploads
+            WHERE id = ?
+            `,
+            [
+                uploadResult.insertId
+            ]
+        );
 
-            const [student] = await this.db.query(
-                `
-                SELECT application_number,email,expected_date
-                FROM students
-                WHERE application_number = ?
-                `,
-                [applicationNumber]
-            );
-
-
-            updated++;
-
-        } else {
-
-            skipped++;
-        }
-    }
-    const totalStudents = updated + skipped;
-    // console.log(setting);
-
-    const [uploadResult] = await this.db.query(
-        `
-        INSERT INTO uploads (
-            settings_id,
-            file_name,
-            uploaded_by,
-            total_students,
-            updated_students,
-            skipped_students,
-            created_by,
-            updated_by
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-            setting,
-            file.originalname,
-            userId,
-            updated + skipped,
-            updated,
-            skipped,
-            userId,
-            userId
-        ]
-    );
-    const [[upload]] = await this.db.query(
-        `
-        SELECT created_at
-        FROM uploads
-        WHERE id = ?
-        `,
-        [uploadResult.insertId]
-    );
 
     return {
         updated,
         skipped,
-        lastUploadedAt: upload.created_at
+        lastUploadedAt:
+            upload.created_at
     };
 }
 
