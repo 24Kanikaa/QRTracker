@@ -152,33 +152,15 @@ class SettingService {
         ORDER BY s.admission_year DESC
     `);
 
-    return rows.map(row => {
-        try {
-            const parsedDates = JSON.parse(
-                row.admission_dates || "[]"
-            );
+    return rows.map(row => ({
+        ...row,
 
-            return {
-                ...row,
-                admission_dates: parsedDates
-            };
+        admission_dates:
+            Array.isArray(row.admission_dates)
+                ? row.admission_dates
+                : JSON.parse(row.admission_dates || "[]")
 
-        } catch (error) {
-            console.error(
-                "❌ INVALID admission_dates JSON",
-                {
-                    id: row.id,
-                    admission_year: row.admission_year,
-                    rawValue: row.admission_dates
-                }
-            );
-
-            return {
-                ...row,
-                admission_dates: []
-            };
-        }
-    });
+    }));
 }
 async getOnboarding(id) {
 
