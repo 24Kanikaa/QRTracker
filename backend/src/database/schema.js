@@ -44,6 +44,35 @@ module.exports = async (db) => {
                     ON UPDATE CURRENT_TIMESTAMP
             );
         `);
+
+            await db.query(`
+    CREATE TABLE IF NOT EXISTS settings (
+
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        admission_year VARCHAR(20) UNIQUE NOT NULL,
+
+        admission_dates JSON NOT NULL,
+
+        active BOOLEAN DEFAULT TRUE,
+
+        created_by INT NULL,
+
+        updated_by INT NULL,
+
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            ON UPDATE CURRENT_TIMESTAMP,
+
+        FOREIGN KEY(created_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL,
+
+        FOREIGN KEY(updated_by)
+            REFERENCES users(id)
+            ON DELETE SET NULL
+    );
+`);
         
    await db.query(`
         CREATE TABLE IF NOT EXISTS students (
@@ -135,34 +164,7 @@ module.exports = async (db) => {
 
     `);
 
-    await db.query(`
-    CREATE TABLE IF NOT EXISTS settings (
 
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        admission_year VARCHAR(20) UNIQUE NOT NULL,
-
-        admission_dates JSON NOT NULL,
-
-        active BOOLEAN DEFAULT TRUE,
-
-        created_by INT NULL,
-
-        updated_by INT NULL,
-
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            ON UPDATE CURRENT_TIMESTAMP,
-
-        FOREIGN KEY(created_by)
-            REFERENCES users(id)
-            ON DELETE SET NULL,
-
-        FOREIGN KEY(updated_by)
-            REFERENCES users(id)
-            ON DELETE SET NULL
-    );
-`);
     
  await db.query(`
     CREATE TABLE IF NOT EXISTS uploads (
