@@ -813,22 +813,45 @@ export default function Settings() {
   }, []);
 
 const handleSyncStudents = async (onboarding) => {
+  const result = await Swal.fire({
+    icon: "question",
+    title: "Sync Students?",
+    text: `This will sync the latest students for the 2026 onboarding year.`,
+    showCancelButton: true,
+    confirmButtonText: "Yes, Sync Students",
+    cancelButtonText: "Cancel",
+    confirmButtonColor: "#0f766e",
+    cancelButtonColor: "#64748b",
+  });
+
+  if (!result.isConfirmed) {
+    return;
+  }
+
   try {
     const { data } = await syncStudents(onboarding.id);
 
     Swal.fire({
-    icon: "success",
-    title: "Sync Complete",
-    html: `
-      <b>${data.inserted}</b> students added<br>
-      <b>${data.updated}</b> students updated
-    `,
-    confirmButtonColor: "#0f766e",
-  });
+      icon: "success",
+      title: "Sync Complete",
+      html: `
+        <b>${data.inserted}</b> students added<br>
+        <b>${data.updated}</b> students updated
+      `,
+      confirmButtonColor: "#0f766e",
+    });
 
     loadOnboardings();
+
   } catch (err) {
-    alert(err.response?.data?.message || "Failed to sync students.");
+    Swal.fire({
+      icon: "error",
+      title: "Sync Failed",
+      text:
+        err.response?.data?.message ||
+        "Failed to sync students.",
+      confirmButtonColor: "#0f766e",
+    });
   }
 };
 
