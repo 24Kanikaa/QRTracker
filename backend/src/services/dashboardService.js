@@ -329,12 +329,33 @@ class DashboardService {
     async getDaywiseDashboardData(date) {
 
         // -----------------------------------------------------
+        // TOTAL ACTIVE DESKS
+        // -----------------------------------------------------
+
+        const [[deskCountRow]] = await this.db.query(`
+
+            SELECT
+                COUNT(*) AS totalDesks
+
+            FROM desks
+
+            WHERE active = 1
+
+        `);
+
+
+        const totalDesks =
+            Number(deskCountRow.totalDesks || 0);
+
+
+        // -----------------------------------------------------
         // EXPECTED STUDENTS
         // -----------------------------------------------------
 
         const [[expectedRow]] = await this.db.query(`
 
-            SELECT COUNT(*) AS expected
+            SELECT
+                COUNT(*) AS expected
 
             FROM students
 
@@ -347,233 +368,218 @@ class DashboardService {
             Number(expectedRow.expected || 0);
 
 
-        // -----------------------------------------------------
-        // CHECKED-IN STUDENTS
-        // -----------------------------------------------------
+    // -----------------------------------------------------
+    // COMPLETED STUDENTS
+    //
+    // A student is completed when the number of
+    // DISTINCT desks scanned equals the total number
+    // of active desks.
+    // -----------------------------------------------------
 
-        const [[checkedInRow]] = await this.db.query(`
+    const [[completedRow]] = await this.db.query(`
 
-            SELECT COUNT(DISTINCT student_id) AS checkedIn
+        SELECT
+            COUNT(*) AS completed
 
-            FROM logs l
+        FROM (
 
-            INNER JOIN students s
-                ON s.id = l.student_id
+            SELECT
+                s.id
+
+            FROM students s
+
+            INNER JOIN logs l
+                ON l.student_id = s.id
+
+            INNER JOIN desks d
+                ON d.id = l.desk_id
+                AND d.active = 1
 
             WHERE s.expected_date = ?
 
-        `, [date]);
+            GROUP BY s.id
+
+            HAVING COUNT(DISTINCT l.desk_id) = ?
+
+        ) AS completed_students
+
+    `, [date, totalDesks]);
 
 
-        const checkedIn =
-            Number(checkedInRow.checkedIn || 0);
+    const completed =
+        Number(completedRow.completed || 0);
 
 
-        // -----------------------------------------------------
-        // COMPLETED STUDENTS
-        // -----------------------------------------------------
+    // -----------------------------------------------------
+    // CHECKED-IN / IN-PROGRESS STUDENTS
+    // -----------------------------------------------------
+    const [[checkedInRow]] = await this.db.query(`
 
-        const [[completedRow]] = await this.db.query(`
+        SELECT
 
-            SELECT COUNT(*) AS completed
+            COUNT(*) AS checkedIn
 
-            FROM students
+        FROM students s
 
-            WHERE expected_date = ?
+        WHERE s.expected_date = ?
 
-            AND status = 'COMPLETED'
+        AND s.arrival_date IS NOT NULL
 
-        `, [date]);
-
-
-        const completed =
-            Number(completedRow.completed || 0);
+    `, [date]);
 
 
-        // -----------------------------------------------------
-        // PENDING
-        // -----------------------------------------------------
+    const checkedIn =
+        Number(checkedInRow.checkedIn || 0);
 
-        const pending =
-            Math.max(
-                checkedIn - completed,
-                0
+
+
+    // -----------------------------------------------------
+    // PENDING / NOT ARRIVED STUDENTS
+    // -----------------------------------------------------
+
+    const pending =
+        Math.max(
+            expected -
+            (completed + checkedIn),
+
+            0
+        );
+
+    // -----------------------------------------------------
+    // ARRIVAL FLOW
+    // 08:00 AM → 10:00 PM
+    // -----------------------------------------------------
+    const [arrivalRows] = await this.db.query(`
+
+        SELECT
+
+            HOUR(arrival_date) AS hour,
+
+            COUNT(*) AS arrivals
+
+        FROM students
+
+        WHERE expected_date = ?
+
+        AND arrival_date IS NOT NULL
+
+        GROUP BY HOUR(arrival_date)
+
+        ORDER BY hour
+
+    `, [date]);
+
+
+
+    const arrivalsByHour = {};
+
+    arrivalRows.forEach((row) => {
+
+        const hour =
+            Number(row.hour);
+
+        arrivalsByHour[hour] =
+            Number(row.arrivals || 0);
+
+    });
+
+
+    let cumulative = 0;
+
+    const arrivalData = [];
+
+    for (let hour = 8; hour <= 22; hour++) {
+        const arrivals = arrivalsByHour[hour] || 0;
+
+        cumulative += arrivals;
+
+        arrivalData.push({
+            hourValue: hour,
+            hour: this.formatHour(hour),
+            arrivals,
+            cumulative,
+        });
+    }
+// DESK PERFORMANCE
+// -----------------------------------------------------
+
+const [deskRows] = await this.db.query(`
+
+    SELECT
+
+        d.id,
+
+        d.desk_name AS name,
+
+        d.location,
+
+
+        COUNT(
+            DISTINCT s.id
+        ) AS expected,
+
+
+        COUNT(
+            DISTINCT CASE
+
+                WHEN l.id IS NOT NULL
+
+                THEN s.id
+
+            END
+
+        ) AS processed
+
+    FROM desks d
+
+    LEFT JOIN students s
+
+        ON s.expected_date = ?
+
+    LEFT JOIN logs l
+
+        ON l.student_id = s.id
+
+        AND l.desk_id = d.id
+
+    WHERE d.active = 1
+
+    GROUP BY
+
+        d.id,
+
+        d.desk_name,
+
+        d.location,
+
+        d.display_order
+
+    ORDER BY d.display_order
+
+`, [date]);
+
+
+const deskPerformance =
+    deskRows.map(row => {
+
+        const deskExpected =
+            Number(
+                row.expected || 0
             );
 
 
-        // -----------------------------------------------------
-        // ARRIVAL FLOW
-        // -----------------------------------------------------
+        const processed =
+            Number(
+                row.processed || 0
+            );
 
-        const [arrivalRows] = await this.db.query(`
 
-            SELECT
-
-                HOUR(arrival_date) AS hour,
-
-                COUNT(*) AS arrivals
-
-            FROM students
-
-            WHERE expected_date = ?
-
-            AND arrival_date IS NOT NULL
-
-            GROUP BY HOUR(arrival_date)
-
-            ORDER BY hour
-
-        `, [date]);
-
-
-        let cumulative = 0;
-
-
-        const arrivalData =
-            arrivalRows.map(row => {
-
-                cumulative += Number(
-                    row.arrivals
-                );
-
-
-                return {
-
-                    hour: this.formatHour(
-                        row.hour
-                    ),
-
-                    cumulative
-
-                };
-
-            });
-
-
-        // -----------------------------------------------------
-        // DESK PERFORMANCE
-        // -----------------------------------------------------
-
-        const [deskRows] = await this.db.query(`
-
-            SELECT
-
-                d.id,
-
-                d.desk_name AS name,
-
-                d.location,
-
-                COUNT(
-                    DISTINCT s.id
-                ) AS expected,
-
-                COUNT(
-                    DISTINCT CASE
-
-                        WHEN l.id IS NOT NULL
-
-                        THEN s.id
-
-                    END
-
-                ) AS processed
-
-            FROM desks d
-
-            LEFT JOIN students s
-
-                ON s.expected_date = ?
-
-            LEFT JOIN logs l
-
-                ON l.student_id = s.id
-
-                AND l.desk_id = d.id
-
-            WHERE d.active = 1
-
-            GROUP BY
-
-                d.id,
-
-                d.desk_name,
-
-                d.location,
-
-                d.display_order
-
-            ORDER BY d.display_order
-
-        `, [date]);
-
-
-        const deskPerformance =
-            deskRows.map(row => {
-
-                const deskExpected =
-                    Number(row.expected || 0);
-
-
-                const processed =
-                    Number(row.processed || 0);
-
-
-                const percentage =
-                    deskExpected
-
-                        ? Math.round(
-                            processed /
-                            deskExpected *
-                            100
-                        )
-
-                        : 0;
-
-
-                return {
-
-                    id: row.id,
-
-                    name: row.name,
-
-                    location: row.location,
-
-                    expected: deskExpected,
-
-                    processed,
-
-                    value: percentage
-
-                };
-
-            });
-
-
-        // -----------------------------------------------------
-        // RECENT STUDENTS
-        // -----------------------------------------------------
-
-        const recentStudents =
-            await this.getDynamicRecentScans({
-
-                date,
-
-                limit: 10
-
-            });
-
-
-        // -----------------------------------------------------
-        // OVERALL COMPLETION
-        // -----------------------------------------------------
-
-        const overallPct =
-            expected
+        const percentage =
+            deskExpected
 
                 ? Math.round(
-                    completed /
-                    expected *
+                    processed /
+                    deskExpected *
                     100
                 )
 
@@ -582,79 +588,135 @@ class DashboardService {
 
         return {
 
-            stats: {
+            id:
+                row.id,
 
-                expected: {
+            name:
+                row.name,
 
-                    value: expected,
+            location:
+                row.location,
 
-                    subtitle:
-                        "Students registered"
+            expected:
+                deskExpected,
 
-                },
+            processed,
 
-
-                checkedIn: {
-
-                    value: checkedIn,
-
-                    subtitle:
-
-                        expected
-
-                            ? `${Math.round(
-                                checkedIn /
-                                expected *
-                                100
-                            )}% of expected`
-
-                            : "0% of expected"
-
-                },
-
-
-                completed: {
-
-                    value: completed,
-
-                    subtitle:
-                        "Finished all desks"
-
-                },
-
-
-                waiting: {
-
-                    value: pending,
-
-                    subtitle:
-                        "Currently in queue"
-
-                }
-
-            },
-
-
-            arrivalData,
-
-
-            overallPct,
-
-
-            overallSubtitle:
-
-                `${completed} of ${expected} fully onboarded`,
-
-
-            deskPerformanceRaw:
-                deskPerformance,
-
-
-            recentStudents
+            value:
+                percentage
 
         };
 
-    }
+    });
+
+
+// -----------------------------------------------------
+// RECENT STUDENTS
+// -----------------------------------------------------
+
+const recentStudents =
+    await this.getDynamicRecentScans({
+
+        date,
+
+        limit: 10
+
+    });
+
+
+// -----------------------------------------------------
+// OVERALL COMPLETION
+// -----------------------------------------------------
+
+const overallPct =
+    expected > 0
+        ? Math.round(
+            (completed / expected) * 100
+        )
+        : 0;
+
+// -----------------------------------------------------
+// FINAL RESPONSE
+// -----------------------------------------------------
+
+return {
+
+    stats: {
+
+        expected: {
+
+            value:
+                expected,
+
+            subtitle:
+                "Students registered"
+
+        },
+
+
+        checkedIn: {
+
+            value:
+                checkedIn,
+
+            subtitle:
+                expected
+
+                    ? `${Math.round(
+                        checkedIn /
+                        expected *
+                        100
+                    )}% of expected`
+
+                    : "0% of expected"
+
+        },
+
+
+        completed: {
+
+            value:
+                completed,
+
+            subtitle:
+                `${totalDesks} of ${totalDesks} desks completed`
+
+        },
+
+
+        waiting: {
+
+            value:
+                pending,
+
+            subtitle:
+                "Not arrived yet"
+
+        }
+
+    },
+
+
+    arrivalData,
+
+
+    overallPct,
+
+
+    overallSubtitle:
+        `${completed} of ${expected} fully onboarded`,
+
+
+    deskPerformanceRaw:
+        deskPerformance,
+
+
+    recentStudents
+
+};
+
+}
+
 
     formatStudentStatus(status) {
 
@@ -677,91 +739,92 @@ class DashboardService {
     }
 
     async getDynamicRecentScans({
-        date = null,
-        limit = 10
-    } = {}) {
+    date = null,
+    limit = 10
+} = {}) {
 
-        let where = "";
+    let where = "";
 
-        const params = [];
-
-
-        if (date) {
-
-            where = `
-                WHERE s.expected_date = ?
-            `;
-
-            params.push(date);
-
-        }
+    const params = [];
 
 
-        params.push(Number(limit));
+    if (date) {
 
+        where = `
+            WHERE s.expected_date = ?
+        `;
 
-        const [rows] = await this.db.query(`
-
-            SELECT
-
-                s.id AS student_id,
-
-                s.first_name,
-
-                s.email,
-
-                d.desk_name AS desk,
-
-                l.scan_time,
-
-                s.status
-
-
-            FROM logs l
-
-
-            INNER JOIN students s
-
-                ON s.id = l.student_id
-
-
-            INNER JOIN desks d
-
-                ON d.id = l.desk_id
-
-
-            ${where}
-
-
-            ORDER BY
-
-                l.scan_time DESC
-
-
-            LIMIT ?
-
-        `, params);
-
-
-        return rows.map(row => ({
-
-            id: row.student_id,
-
-            name: row.name,
-
-            email: row.email,
-
-            desk: row.desk,
-
-            time: row.scan_time,
-
-            status: this.formatStudentStatus(
-                row.status
-            )
-
-        }));
+        params.push(date);
 
     }
+
+
+    params.push(Number(limit));
+
+
+    const [rows] = await this.db.query(`
+
+        SELECT
+
+            s.id AS student_id,
+
+            s.first_name,
+
+            s.last_name,
+
+            s.roll_number,
+
+            d.desk_name AS desk,
+
+            l.scan_time
+
+
+        FROM logs l
+
+
+        INNER JOIN students s
+
+            ON s.id = l.student_id
+
+
+        INNER JOIN desks d
+
+            ON d.id = l.desk_id
+
+
+        ${where}
+
+
+        ORDER BY
+
+            l.scan_time DESC
+
+
+        LIMIT ?
+
+    `, params);
+
+
+    return rows.map(row => ({
+
+        id:
+            row.student_id,
+
+        name:
+            `${row.first_name || ""} ${row.last_name || ""}`.trim(),
+
+        rollNumber:
+            row.roll_number,
+
+        desk:
+            row.desk,
+
+        time:
+            row.scan_time
+
+    }));
+
+}
 
     async getOverallDashboardData(
         activeDates
@@ -864,11 +927,10 @@ class DashboardService {
 
 
         const waiting =
-            Math.max(
-                checkedIn - completed,
-                0
-            );
-
+    Math.max(
+        expected - checkedIn,
+        0
+    );
 
         // -----------------------------------------------------
         // DESK PERFORMANCE

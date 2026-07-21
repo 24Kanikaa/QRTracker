@@ -153,7 +153,7 @@ export default function DesksOverview() {
                   className="text-xs font-semibold tracking-[0.2em] uppercase"
                   style={{ color: C.brass }}
                 >
-                  Admission Operations
+                  Onboarding Operations
                 </p>
 
                 <h1

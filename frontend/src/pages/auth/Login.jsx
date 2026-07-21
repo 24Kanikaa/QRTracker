@@ -80,7 +80,7 @@ function Login() {
         </div>
 
         <h1 className="text-3xl font-bold text-center mt-6">
-          Admission Tracker
+          Onboarding Tracker
         </h1>
 
         <p className="text-gray-500 text-center mt-2">

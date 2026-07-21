@@ -182,9 +182,6 @@ export default function Dashboard() {
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState(null);
 
-  // isLive comes straight from the backend — true only when the selected
-  // date is genuinely today's admission date (server clock), never a
-  // client-side guess. Overall mode is never "live".
   const isLive = mode === "daywise" && !!data?.isLive;
 
   // Close the dropdown on outside click.
@@ -217,9 +214,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Fetch dashboard data whenever mode or the selected date changes.
-  // On first daywise load, daywiseSelection is null — the backend resolves
-  // that to today (or a sensible fallback) and reports it via selectedDate.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -232,6 +226,7 @@ export default function Dashboard() {
         });
         if (cancelled) return;
         setData(res.data);
+        console.log(res.data);
         if (mode === "daywise") {
           setDaywiseSelection(res.data.selectedDate);
         }
@@ -250,22 +245,23 @@ export default function Dashboard() {
   }, [mode, mode === "daywise" ? daywiseSelection : null]);
 
   function chooseDaywise(dateKey) {
-    // Always fires, even if dateKey matches what's already selected —
-    // this is what a native <select> won't do when re-picking the same
-    // option, which previously caused Live to get "stuck" after Overall.
     setMode("daywise");
     setDaywiseSelection(dateKey);
     setDropdownOpen(false);
   }
 
-  const daywiseOptions = useMemo(
-    () =>
-      admissionDates.map((d) => ({
+const daywiseOptions = useMemo(
+  () =>
+    [...admissionDates]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((d) => ({
         key: d.date,
-        label: d.isToday ? `${formatDateLabel(d.date)} (Today)` : formatDateLabel(d.date),
+        label: d.isToday
+          ? `${formatDateLabel(d.date)} (Today)`
+          : formatDateLabel(d.date),
       })),
-    [admissionDates]
-  );
+  [admissionDates]
+);
 
   const deskDetails = useMemo(() => {
     if (!data) return [];
@@ -289,7 +285,16 @@ export default function Dashboard() {
   };
 
   const daywiseLabel = daywiseOptions.find((o) => o.key === daywiseSelection)?.label;
+const expectedStudents =
+  Number(data?.stats?.expected?.value || 0);
 
+const yAxisMax =
+  expectedStudents > 0
+    ? Math.max(
+        Math.ceil(expectedStudents / 2) * 2,
+        10
+      )
+    : 10;
   return (
     <div style={{ background: C.bg, minHeight: "100vh", transition: "background 0.25s ease" }}>
       <style>{`
@@ -432,7 +437,7 @@ export default function Dashboard() {
                     boxShadow: C.clockShadow,
                   }}
                 >
-                  <LiveClock C={C} />
+                  {isLive && <LiveClock C={C} />}
                 </div>
               </div>
             )}
@@ -458,7 +463,7 @@ export default function Dashboard() {
                 <StatCard C={C} title="Expected" stat={data.stats.expected} icon={<Users size={20} />} sparkColor={C.sky} />
                 <StatCard C={C} title="Checked In" stat={data.stats.checkedIn} icon={<UserCheck size={20} />} sparkColor={C.brass} />
                 <StatCard C={C} title="Completed" stat={data.stats.completed} icon={<Building2 size={20} />} sparkColor={C.green} />
-                <StatCard C={C} title="Pending" stat={data.stats.waiting} icon={<Clock3 size={20} />} sparkColor={C.rose} />
+                <StatCard C={C} title="Not Arrived" stat={data.stats.waiting} icon={<Clock3 size={20} />} sparkColor={C.rose} />
               </div>
 
               {mode === "daywise" ? (
@@ -486,8 +491,25 @@ export default function Dashboard() {
                               </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" stroke={C.hairlineSoft} vertical={false} />
-                            <XAxis dataKey="hour" stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis stroke={C.mutedSoft} fontSize={12} tickLine={false} axisLine={false} />
+                            <XAxis
+                              dataKey="hour"
+                              interval={1}
+                              stroke={C.mutedSoft}
+                              fontSize={12}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <YAxis
+                              domain={[0, yAxisMax]}
+                              ticks={Array.from(
+                                { length: yAxisMax / 2 + 1 },
+                                (_, i) => i * 2
+                              )}
+                              stroke={C.mutedSoft}
+                              fontSize={12}
+                              tickLine={false}
+                              axisLine={false}
+                            />
                             <Tooltip content={<CustomTooltip />} />
                             <Area type="monotone" dataKey="cumulative" name="Checked in" stroke={C.brass} strokeWidth={2.5} fill="url(#cumFill)" />
                           </AreaChart>
@@ -534,7 +556,7 @@ export default function Dashboard() {
                               <th className="px-4 py-3 font-medium">ID</th>
                               <th className="px-4 py-3 font-medium">Desk</th>
                               <th className="px-4 py-3 font-medium">Time</th>
-                              <th className="px-4 py-3 font-medium">Status</th>
+                              {/* <th className="px-4 py-3 font-medium">Status</th> */}
                             </tr>
                           </thead>
                           <tbody>
@@ -548,14 +570,14 @@ export default function Dashboard() {
                             {(data.recentStudents || []).map((s, i) => (
                               <tr key={i} style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
                                 <td className="px-6 py-4 font-medium" style={{ color: C.text }}>{s.name}</td>
-                                <td className="px-4 py-4" style={{ color: C.mutedSoft }}>{s.id}</td>
+                                <td className="px-4 py-4" style={{ color: C.mutedSoft }}>{s.rollNumber}</td>
                                 <td className="px-4 py-4" style={{ color: C.muted }}>{s.desk}</td>
                                 <td className="px-4 py-4" style={{ color: C.muted }}>{formatTime(s.time)}</td>
-                                <td className="px-4 py-4">
+                                {/* <td className="px-4 py-4">
                                   <span className="px-3 py-1 rounded-full text-xs font-medium" style={{ background: statusStyle[s.status]?.bg, color: statusStyle[s.status]?.fg }}>
                                     {s.status}
                                   </span>
-                                </td>
+                                </td> */}
                               </tr>
                             ))}
                           </tbody>

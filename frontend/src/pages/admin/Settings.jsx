@@ -491,11 +491,10 @@ function UserFormModal({ initial, onClose, onSave, C, saving }) {
    STUDENT CSV IMPORT PANEL — used inside the onboarding form
    ============================================================ */
 
-function StudentImportPanel({settingsId,initialLastUploadedAt, students, onStudents, C }) {
+function StudentImportPanel({settingsId, students, onStudents, C }) {
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState(null);
   const [parsing, setParsing] = useState(false);
- const [lastUploadedAt, setLastUploadedAt] = useState(initialLastUploadedAt);
 
   const validCount = students.filter((s) => s._errors.length === 0).length;
   const invalidCount = students.length - validCount;
@@ -527,7 +526,7 @@ const handleFile = async (e) => {
       confirmButtonText: "OK",
       confirmButtonColor: "#0f766e",
     });
-    setLastUploadedAt(data.lastUploadedAt);
+
     setFileName("");
   } catch (err) {
     console.error(err);
@@ -561,7 +560,7 @@ const handleFile = async (e) => {
       <p className="text-xs mb-2" style={{ color: C.mutedSoft }}>
        Use the csv to upload the expected date data. Make sure format is correct.
       </p>
-      {lastUploadedAt && (
+      {/* {lastUploadedAt && (
       <p
           className="text-xs mt-2 mb-2"
           style={{ color: C.mutedSoft }}
@@ -572,7 +571,7 @@ const handleFile = async (e) => {
                   timeStyle: "short",
               })}
           </p>
-      )}
+      )} */}
 
       <label
         className="flex items-center justify-center gap-2 h-11 rounded-lg text-sm font-medium cursor-pointer transition"
@@ -712,7 +711,7 @@ function OnboardingFormModal({ initial, onClose, onSave, C, saving }) {
 
         <div className="pt-2" style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
           <div className="pt-4">
-            <StudentImportPanel settingsId={initial?.id} initialLastUploadedAt={initial.lastUploadedAt} students={students} onStudents={setStudents} C={C} />
+            <StudentImportPanel settingsId={initial?.id}  students={students} onStudents={setStudents} C={C} />
           </div>
         </div>
       </div>
@@ -1041,7 +1040,7 @@ const saveUser = async (form) => {
   const tabs = [
       
       { key: "users", label: "Users", icon: Users },{ key: "onboarding", label: "Onboarding Details", icon: Calendar },
-      { key: "logs", label: "Logs", icon: History },
+      // { key: "logs", label: "Logs", icon: History },
   ];
 
   const roleBadge = { Admin: C.rose, Coordinator: C.brass, "Desk Operator": C.amber, Viewer: C.mutedSoft };
