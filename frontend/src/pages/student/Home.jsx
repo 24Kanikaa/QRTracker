@@ -299,8 +299,11 @@ const handleScan = async (qrSlug) => {
                 return (
                   <div key={desk.id} className="relative bg-white rounded-3xl p-4 shadow-sm">
                     <div className="flex items-center gap-4">
-                      <div className={`relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center ${color}`}>
-                        <Icon size={26} />
+                      <div className="relative z-10 w-14 h-14 rounded-2xl flex items-center justify-center bg-teal-50 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-500/20">
+                        <Icon
+                          size={26}
+                          className="text-teal-700 dark:text-teal-400"
+                        />
                       </div>
 
                       <div className="flex-1">
