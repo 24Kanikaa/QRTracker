@@ -72,6 +72,7 @@ export function AuthProvider({ children }) {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
         localStorage.removeItem("userType");
+        sessionStorage.removeItem("redirectAfterLogin");
         window.location.href = redirect;
     };
 

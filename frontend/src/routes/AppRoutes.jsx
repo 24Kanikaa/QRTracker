@@ -15,6 +15,7 @@ import UserLoginError from "../pages/auth/UserLoginError";
 import AdminLayout from "../layouts/AdminLayout";
 import { AuthProvider } from "../context/AuthContext";
 import ProtectedRoute from "../components/ProtectedRoute";
+import DeskScanner from "../components/desk/DeskScanner"
 
 export default function AppRoutes() {
 
@@ -45,7 +46,10 @@ export default function AppRoutes() {
                 />
 
                 {/* STUDENT */}
-
+                <Route
+                    path="/student/scan/:slug"
+                    element={<DeskScanner />}
+                />
                 <Route
                     path="/student"
                     element={

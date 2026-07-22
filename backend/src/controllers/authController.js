@@ -49,6 +49,7 @@ exports.microsoftLogin = async (req, res) => {
     try {
         //  console.log(req.query.type);
         const loginType = req.query.type || "student";
+        const redirectPath = req.query.redirect || "/student";
         // console.log("Incoming type:", req.query.type);
         const tenantId = process.env.AZURE_TENANT_ID;
 
@@ -70,7 +71,10 @@ exports.microsoftLogin = async (req, res) => {
 
                 scope: "openid profile email User.Read",
 
-                state: loginType
+                state: JSON.stringify({
+                    type: loginType,
+                    redirect: redirectPath
+                })
 
             });
 
@@ -107,7 +111,17 @@ exports.microsoftCallback = async (req, res) => {
 
         const code = req.query.code;
 
-        const loginType = req.query.state || "student";
+        let loginType = "student";
+        let redirectPath = "/student";
+
+        try {
+            const state = JSON.parse(req.query.state);
+
+            loginType = state.type || "student";
+            redirectPath = state.redirect || "/student";
+        } catch {
+            loginType = req.query.state || "student";
+        }
         // console.log("callback"+req.query.state);
         if (!code) {
 
@@ -196,10 +210,8 @@ exports.microsoftCallback = async (req, res) => {
             });
 
 
-            return res.redirect(
-                loginType === "admin"
-                    ? `${process.env.FRONTEND_URL}/admin`
-                    : `${process.env.FRONTEND_URL}/student`
+             return res.redirect(
+                `${process.env.FRONTEND_URL}/admin`
             );
 
         }
@@ -226,7 +238,7 @@ exports.microsoftCallback = async (req, res) => {
         return res.redirect(
             loginType === "admin"
                     ? `${process.env.FRONTEND_URL}/admin`
-                    : `${process.env.FRONTEND_URL}/student`);
+                   : `${process.env.FRONTEND_URL}${redirectPath}`);
 
     }
     catch (err) {

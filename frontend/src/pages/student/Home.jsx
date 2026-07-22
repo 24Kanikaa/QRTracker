@@ -121,37 +121,10 @@ useEffect(() => {
 }, [student, navigate]);
 
 const handleScan = async (qrSlug) => {
-  try {
-    const email = getLoggedInEmail();
+  setShowScanner(false);
 
-    // if (!selectedDesk) {
-    //   return;
-    // }
-
-    // // Prevent scanning the wrong QR
-    // if (selectedDesk.slug !== qrSlug) {
-    //   throw new Error(
-    //     `Please scan the QR for "${selectedDesk.title}".`
-    //   );
-    // }
-
-    await scanDesk({
-      email,
-      qr_slug: qrSlug,
-    });
-
-    setShowScanner(false);
-    // setSelectedDesk(null);
-
-    await fetchJourney();
-
-  } catch (err) {
-    alert(
-      err.response?.data?.message ||
-      err.message ||
-      "Unable to complete desk."
-    );
-  }
+  // Redirect to the scanner route
+  window.location.href = qrSlug;
 };
 
   /* ---------- loading state ---------- */

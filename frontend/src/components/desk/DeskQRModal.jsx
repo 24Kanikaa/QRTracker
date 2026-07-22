@@ -21,7 +21,7 @@ export default function DeskQRModal({
     link.href = dataUrl;
     link.click();
   };
-
+  const qrUrl = `${window.location.origin}/student/scan/${desk.qr_slug}`;
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex justify-center items-center z-50">
 
@@ -55,7 +55,7 @@ export default function DeskQRModal({
             className="bg-white rounded-2xl p-8 border flex flex-col items-center"
           >
             <QRCode
-              value={desk.qr_slug}
+              value={qrUrl}
               size={240}
             />
 

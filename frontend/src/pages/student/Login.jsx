@@ -10,11 +10,16 @@ export default function StudentLogin() {
   const navigate = useNavigate();
 
    const handleSSO = (e) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    window.location.href =
-      `${import.meta.env.VITE_API_URL}/auth/sso/login?type=student`;
-  };
+  const redirect =
+    sessionStorage.getItem("redirectAfterLogin") || "/student";
+
+  window.location.href =
+    `${import.meta.env.VITE_API_URL}/auth/sso/login?type=student&redirect=${encodeURIComponent(
+      redirect
+    )}`;
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-700 via-teal-600 to-emerald-600 flex items-center justify-center p-5">
