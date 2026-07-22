@@ -63,10 +63,11 @@ function getDeskVisual(desk) {
     color: COLORS[key] || "bg-slate-100 text-slate-600",
   };
 }
-
+import { useNavigate } from "react-router-dom";
 
 
 export default function Home() {
+  const navigate = useNavigate();
   const [showScanner, setShowScanner] = useState(false);
 // const [selectedDesk, setSelectedDesk] = useState(null);
   const [student, setStudent] = useState(null);
@@ -109,6 +110,16 @@ function getLoggedInEmail() {
     return null;
   }
 }
+useEffect(() => {
+  if (
+    student &&
+    student.total > 0 &&
+    student.completed === student.total
+  ) {
+    navigate("/success", { replace: true });
+  }
+}, [student, navigate]);
+
 const handleScan = async (qrSlug) => {
   try {
     const email = getLoggedInEmail();

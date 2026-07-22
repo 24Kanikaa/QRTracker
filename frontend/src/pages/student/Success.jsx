@@ -5,9 +5,33 @@ import {
   Home,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-
+import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "../../context/AuthContext";
+import {
+    getJourney,
+} from "../../services/deskService";
 export default function Success() {
   const navigate = useNavigate();
+  const [student, setStudent] = useState(null);
+const [journey, setJourney] = useState([]);
+const [loading, setLoading] = useState(true);
+
+const { user } = useAuth();
+
+const fetchJourney = useCallback(async () => {
+  try {
+    const res = await getJourney(user.email);
+    console.log(res.data);
+    setStudent(res.data.data.student);
+    setJourney(res.data.data.journey);
+  } finally {
+    setLoading(false);
+  }
+}, [user]);
+
+useEffect(() => {
+  fetchJourney();
+}, [fetchJourney]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-teal-600 via-teal-600 to-slate-100 flex justify-center">
@@ -102,33 +126,21 @@ export default function Success() {
 
             </h3>
 
-            <div className="space-y-4">
-
-              <SummaryRow
-                title="Gate Entry"
-              />
-
-              <SummaryRow
-                title="Admission Desk"
-              />
-
-              <SummaryRow
-                title="Hostel Allocation"
-              />
-
-              <SummaryRow
-                title="IT Setup"
-              />
-
-              <SummaryRow
-                title="Mess Registration"
-              />
-
-              <SummaryRow
-                title="Library Activation"
-              />
-
-            </div>
+           <div className="space-y-4">
+            {journey?.length ? (
+              journey.map((desk) => (
+                <SummaryRow
+                  key={desk.id}
+                  title={desk.title}
+                  location={desk.location}
+                />
+              ))
+            ) : (
+              <p className="text-center text-slate-500 py-6">
+                No journey found
+              </p>
+            )}
+          </div>
 
           </div>
 
@@ -148,7 +160,7 @@ export default function Success() {
 
           {/* Buttons */}
 
-          <div className="mt-8 space-y-4">
+          {/* <div className="mt-8 space-y-4">
             <button
               onClick={() => navigate("/student")}
               className="w-full border border-slate-300 rounded-2xl py-4 font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
@@ -160,11 +172,11 @@ export default function Success() {
 
             </button>
 
-          </div>
+          </div> */}
 
           <p className="text-center text-slate-400 text-xs mt-8 pb-8">
 
-            Welcome to the Plaksha Community 💚
+            Welcome to the Plaksha Community.
 
           </p>
 
@@ -176,7 +188,7 @@ export default function Success() {
   );
 }
 
-function SummaryRow({ title }) {
+function SummaryRow({ title, location }) {
   return (
     <div className="flex items-center justify-between">
 
@@ -187,18 +199,16 @@ function SummaryRow({ title }) {
           size={20}
         />
 
-        <span className="font-medium text-slate-700">
-
-          {title}
-
-        </span>
+        <div>
+          <p className="font-medium text-slate-700">
+            {title}
+          </p>
+        </div>
 
       </div>
 
       <span className="text-green-600 text-sm font-semibold">
-
         Completed
-
       </span>
 
     </div>
