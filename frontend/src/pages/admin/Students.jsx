@@ -71,41 +71,12 @@ function slugifyDeskName(deskName) {
   );
 }
 
-/* ============================================================
-   STATUS — mirrors the exact rules the backend dashboard uses
-   in both getDaywiseDashboardData() and getOverallDashboardData(),
-   so the counts/tabs on this page always agree with the Dashboard:
-
-     COMPLETED    -> distinct desks scanned === total active desks
-                     (backend: HAVING COUNT(DISTINCT l.desk_id) = totalDesks)
-
-     IN_PROGRESS  -> arrival_date is set, but not yet COMPLETED
-                     (backend daywise: inProgress = arrived - completed)
-
-     EXPECTED     -> arrival_date is still NULL
-                     (backend daywise: notArrived = expected_date = ?
-                      AND arrival_date IS NULL
-                      backend overall: waiting = expected - checkedIn,
-                      where checkedIn = arrival_date IS NOT NULL)
-
-   IMPORTANT: the previous version of this page derived status purely
-   from completedCount (ignoring arrivalDate entirely), so a student
-   who had already arrived but hadn't scanned a single desk yet was
-   incorrectly bucketed as "Expected / Not Arrived" instead of
-   "In Progress" — that's what caused the numbers here to drift from
-   the Dashboard's Overall / Day Wise tabs.
-   ============================================================ */
 
 function computeStatus(completedCount, totalDesks, arrivalDate) {
   if (totalDesks > 0 && completedCount === totalDesks) return "COMPLETED";
   if (arrivalDate) return "IN_PROGRESS";
   return "EXPECTED";
 }
-
-/* ============================================================
-   NORMALIZATION — maps the raw { desks, students } payload from
-   getStudents() into the shape this page renders.
-   ============================================================ */
 
 function normalizeOverview(payload) {
   const desksRaw = payload?.desks || [];
@@ -497,6 +468,7 @@ export default function AdmissionOverviewPage() {
       setLoadingProfile(true);
 
       const { data } = await getStudentInfo(student.email);
+      // console.log(data);
 
       setStudentProfile(data.student);
     } catch (err) {
@@ -565,11 +537,6 @@ export default function AdmissionOverviewPage() {
     [students]
   );
 
-  // "All dates" -> overall population (every student, matching the
-  // backend's getOverallDashboardData which scopes to expected_date IN
-  // activeDates, i.e. every admission date).
-  // A specific date -> daywise population, matching getDaywiseDashboardData's
-  // `WHERE expected_date = ?` used for expected/completed/notArrived.
   const dateFiltered = useMemo(
     () => (selectedDate === "all" ? students : students.filter((s) => s.expectedDateKey === selectedDate)),
     [students, selectedDate]
@@ -623,7 +590,13 @@ export default function AdmissionOverviewPage() {
       searchFiltered.filter((s) => {
         const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
         const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
-        const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
+       const arrivedOk =
+        selectedArrived.length === 0 ||
+        selectedArrived.includes(
+          s.remarks && s.remarks.trim() !== "" ? "yes" : "no"
+        );
+        // console.log(s.arrivedOk);
+        // console.log(s);
         return deskOk && genderOk && arrivedOk;
       }),
     [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived]
@@ -739,7 +712,7 @@ export default function AdmissionOverviewPage() {
     { key: "daywise", label: "Daywise", icon: Calendar },
     { key: "desk", label: "Desk", icon: LayoutGrid },
     { key: "gender", label: "Gender", icon: UserIcon },
-    { key: "arrived", label: "Has arrived", icon: Check },
+    { key: "arrived", label: "Has Remarks", icon: Check },
   ];
 
   const totalActiveFilterCount = activeFilters.length + (selectedDate !== "all" ? 1 : 0);
@@ -1006,8 +979,8 @@ export default function AdmissionOverviewPage() {
                   {/* HAS ARRIVED OPTIONS */}
                   {activeCategory === "arrived" &&
                     [
-                      { value: "yes", label: "Arrived" },
-                      { value: "no", label: "Not arrived" },
+                      { value: "yes", label: "Remarks" },
+                      { value: "no", label: "No remarks" },
                     ].map((r) => {
                       const active = isFilterSelected("arrived", r.value);
                       return (
@@ -1143,9 +1116,9 @@ export default function AdmissionOverviewPage() {
                       <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
                         Actual arrival
                       </th>
-                      <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
+                      {/* <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
                         Status
-                      </th>
+                      </th> */}
                     </tr>
                   </thead>
                   <tbody>
@@ -1179,7 +1152,7 @@ export default function AdmissionOverviewPage() {
                             {formatDate(student.arrivalDate)}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5 text-right">
+                        {/* <td className="px-5 py-3.5 text-right">
                           <span
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
                             style={{ background: C.roseSoft, color: C.rose }}
@@ -1187,7 +1160,7 @@ export default function AdmissionOverviewPage() {
                             <AlertTriangle size={12} />
                             Unexpected
                           </span>
-                        </td>
+                        </td> */}
                       </tr>
                     ))}
                   </tbody>
