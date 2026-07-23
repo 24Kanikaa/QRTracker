@@ -558,7 +558,7 @@ const handleFile = async (e) => {
       </div>
 
       <p className="text-xs mb-2" style={{ color: C.mutedSoft }}>
-       Use the csv to upload the expected date data. Make sure format is correct.
+      Use the csv to update the expected date of arrival. Ensure date format id YYYY-MM-DD.
       </p>
       {/* {lastUploadedAt && (
       <p

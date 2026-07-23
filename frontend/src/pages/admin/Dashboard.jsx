@@ -4,7 +4,6 @@ import {
   Users,
   UserCheck,
   Clock3,
-  Building2,
   Home,
   Laptop,
   UtensilsCrossed,
@@ -15,7 +14,10 @@ import {
   Sun,
   Moon,
   ChevronDown,
-  Loader2,
+  Loader2,CheckCircle2, Gauge,
+  Activity,
+  Building2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -28,6 +30,9 @@ import {
   RadialBarChart,
   RadialBar,
   PolarAngleAxis,
+  BarChart,
+  Bar,
+  Cell,
 } from "recharts";
 import { useTheme } from "../../context/ThemeContext";
 import {
@@ -82,44 +87,69 @@ function Sparkline({ data, color }) {
 
 // Backend currently sends { value, subtitle } only for each stat —
 // delta/direction/spark are optional extras, rendered only when present.
-function StatCard({ title, stat, icon, sparkColor, C }) {
-  const value = typeof stat.value === "number" ? formatNumber(stat.value) : stat.value;
+function StatCard({ title, stat = {}, icon, sparkColor, C, compact = false }) {
+  const value =
+    typeof stat?.value === "number"
+      ? formatNumber(stat.value)
+      : (stat?.value ?? 0);
+
   return (
-    <div className="rounded-2xl p-5" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+    <div
+      className={compact ? "rounded-xl p-3.5" : "rounded-2xl p-5"}
+      style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}
+    >
       <div className="flex items-start justify-between">
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center"
+          className={
+            compact
+              ? "w-8 h-8 rounded-lg flex items-center justify-center"
+              : "w-10 h-10 rounded-xl flex items-center justify-center"
+          }
           style={{ background: `${sparkColor}17`, color: sparkColor, border: `1px solid ${sparkColor}30` }}
         >
           {icon}
         </div>
         {stat.delta && (
           <div
-            className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full"
+            className={
+              compact
+                ? "flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                : "flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full"
+            }
             style={{
               color: stat.direction === "down" ? C.rose : C.green,
               background: stat.direction === "down" ? C.roseSoft : C.greenSoft,
             }}
           >
-            <ArrowUpRight size={12} />
+            <ArrowUpRight size={compact ? 10 : 12} />
             {stat.delta}
           </div>
         )}
       </div>
 
-      <p className="text-sm mt-4" style={{ color: C.muted }}>{title}</p>
+      <p className={compact ? "text-xs mt-2.5" : "text-sm mt-4"} style={{ color: C.muted }}>
+        {title}
+      </p>
 
       <div className="flex items-end justify-between mt-1">
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{value}</h2>
-          <p className="text-xs mt-1" style={{ color: C.mutedSoft }}>{stat.subtitle}</p>
+          <h2
+            className={compact ? "text-xl font-semibold tracking-tight" : "text-3xl font-semibold tracking-tight"}
+            style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}
+          >
+            {value}
+          </h2>
+          {stat.subtitle && (
+            <p className={compact ? "text-[10px] mt-0.5" : "text-xs mt-1"} style={{ color: C.mutedSoft }}>
+              {stat.subtitle}
+            </p>
+          )}
         </div>
-        <Sparkline data={stat.spark} color={sparkColor} />
+        {!compact && <Sparkline data={stat.spark} color={sparkColor} />}
       </div>
     </div>
   );
 }
-
 function LiveClock({ C }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -166,7 +196,7 @@ export default function Dashboard() {
   const { setOpen: setSidebarOpen } = useOutletContext();
 
   // mode: "daywise" (a single admission date, possibly today/live) or "overall"
-  const [mode, setMode] = useState("daywise");
+  const [mode, setMode] = useState("overall");
 
   // [{ date: "2026-07-18", isToday: false }, ...] from admission_year
   const [admissionDates, setAdmissionDates] = useState([]);
@@ -224,6 +254,7 @@ export default function Dashboard() {
           mode,
           date: mode === "daywise" ? daywiseSelection : null,
         });
+        // console.log(res.data);
         if (cancelled) return;
         setData(res.data);
         console.log(res.data);
@@ -295,6 +326,13 @@ const yAxisMax =
         10
       )
     : 10;
+    const expectedVsArrivedData = useMemo(() => {
+  if (!data) return [];
+  return [
+    { name: "Expected", count: Number(data.stats?.expected?.value || 0), color: C.sky },
+    { name: "Arrived", count: Number(data.stats?.arrived?.value || 0), color: C.brass },
+  ];
+}, [data, C]);
   return (
     <div style={{ background: C.bg, minHeight: "100vh", transition: "background 0.25s ease" }}>
       <style>{`
@@ -330,6 +368,17 @@ const yAxisMax =
 
           <div className="mb-6">
             <div className="inline-flex items-center rounded-2xl p-1 w-fit" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+              <button
+                onClick={() => {
+                  setMode("overall");
+                  setDropdownOpen(false);
+                }}
+                className="px-5 py-2.5 rounded-xl font-medium text-sm transition-all"
+                style={{ background: mode === "overall" ? C.brass : "transparent", color: mode === "overall" ? "#fff" : C.muted }}
+              >
+                Overall
+              </button>
+
               <div className="relative" ref={dropdownRef}>
                 <button
                   type="button"
@@ -372,16 +421,6 @@ const yAxisMax =
                   </div>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  setMode("overall");
-                  setDropdownOpen(false);
-                }}
-                className="px-5 py-2.5 rounded-xl font-medium text-sm transition-all"
-                style={{ background: mode === "overall" ? C.brass : "transparent", color: mode === "overall" ? "#fff" : C.muted }}
-              >
-                Overall
-              </button>
             </div>
           </div>
 
@@ -459,12 +498,101 @@ const yAxisMax =
           {data && (
             <div key={`${mode}-${daywiseSelection}`} className="page-transition">
               {/* Overview */}
-              <div className="grid xl:grid-cols-4 md:grid-cols-2 gap-5">
-                <StatCard C={C} title="Expected" stat={data.stats.expected} icon={<Users size={20} />} sparkColor={C.sky} />
-                <StatCard C={C} title="Checked In" stat={data.stats.checkedIn} icon={<UserCheck size={20} />} sparkColor={C.brass} />
-                <StatCard C={C} title="Completed" stat={data.stats.completed} icon={<Building2 size={20} />} sparkColor={C.green} />
-                <StatCard C={C} title="Not Arrived" stat={data.stats.waiting} icon={<Clock3 size={20} />} sparkColor={C.rose} />
-              </div>
+                <div
+                  className={
+                    mode === "overall"
+                      ? "grid xl:grid-cols-4 lg:grid-cols-2 md:grid-cols-2 gap-5"
+                      : "grid xl:grid-cols-6 lg:grid-cols-3 md:grid-cols-2 sm:grid-cols-2 grid-cols-2 gap-3"
+                  }
+                >
+
+                  {mode === "overall" ? (
+                    <>
+                      <StatCard
+                        C={C}
+                        title="Expected"
+                        stat={data.stats.expected}
+                        icon={<Users size={20} />}
+                        sparkColor={C.sky}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="In Progress"
+                        stat={data.stats.checkedIn}
+                        icon={<UserCheck size={20} />}
+                        sparkColor={C.brass}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Completed"
+                        stat={data.stats.completed}
+                        icon={<Building2 size={20} />}
+                        sparkColor={C.green}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Not Arrived"
+                        stat={data.stats.waiting}
+                        icon={<Clock3 size={20} />}
+                        sparkColor={C.rose}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <StatCard
+                        C={C}
+                        title="Expected"
+                        stat={data.stats.expected}
+                        icon={<Users size={20} />}
+                        sparkColor={C.sky}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Arrived"
+                        stat={data.stats.arrived}
+                        icon={<UserCheck size={20} />}
+                        sparkColor={C.brass}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Completed"
+                        stat={data.stats.completed}
+                        icon={<CheckCircle2 size={20} />}
+                        sparkColor={C.green}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="In Progress"
+                        stat={data.stats.inProgress}
+                        icon={<Activity size={20} />}
+                        sparkColor={C.orange}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Not Arrived"
+                        stat={data.stats.notArrived}
+                        icon={<Clock3 size={20} />}
+                        sparkColor={C.rose}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Not Expected Today"
+                        stat={data.stats.notExpected}
+                        icon={<AlertTriangle size={20} />}
+                        sparkColor={C.purple}
+                      />
+                    </>
+                  )}
+
+                </div>
 
               {mode === "daywise" ? (
                 <>
@@ -517,23 +645,43 @@ const yAxisMax =
                       </div>
                     </div>
 
-                    <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                      <h2 className="text-lg font-semibold" style={{ color: C.text }}>Overall Completion</h2>
-                      <p className="text-sm mt-1" style={{ color: C.muted }}>{data.overallSubtitle}</p>
+                  <div className="rounded-2xl p-6 flex flex-col" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                      <h2 className="text-lg font-semibold" style={{ color: C.text }}>Expected vs Arrived</h2>
+                      <p className="text-sm mt-1" style={{ color: C.muted }}>{daywiseLabel}</p>
 
-                      <div className="flex-1 flex items-center justify-center" style={{ minHeight: 220 }}>
-                        <div style={{ width: "100%", height: 220, position: "relative" }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <RadialBarChart innerRadius="72%" outerRadius="100%" data={[{ name: "Completed", value: data.overallPct, fill: C.brass }]} startAngle={90} endAngle={-270}>
-                              <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                              <RadialBar background={{ fill: C.hairlineSoft }} dataKey="value" cornerRadius={12} />
-                            </RadialBarChart>
-                          </ResponsiveContainer>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: "none" }}>
-                            <span className="text-4xl font-semibold" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{data.overallPct}%</span>
-                            <span className="text-xs mt-1" style={{ color: C.mutedSoft }}>onboarded</span>
-                          </div>
-                        </div>
+                      <div className="flex-1 flex items-center" style={{ minHeight: 220 }}>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart
+                            data={expectedVsArrivedData}
+                            layout="vertical"
+                            margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
+                            barCategoryGap={28}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.hairlineSoft} horizontal={false} />
+                            <XAxis
+                              type="number"
+                              stroke={C.mutedSoft}
+                              fontSize={12}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <YAxis
+                              type="category"
+                              dataKey="name"
+                              stroke={C.mutedSoft}
+                              fontSize={13}
+                              tickLine={false}
+                              axisLine={false}
+                              width={70}
+                            />
+                            <Tooltip content={<CustomTooltip />} cursor={{ fill: C.hairlineSoft }} />
+                            <Bar dataKey="count" radius={[0, 8, 8, 0]} barSize={36}>
+                              {expectedVsArrivedData.map((entry, i) => (
+                                <Cell key={i} fill={entry.color} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
                       </div>
                     </div>
                   </div>
@@ -695,18 +843,55 @@ const yAxisMax =
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 mt-2 pt-4" style={{ borderTop: `1px solid ${C.hairlineSoft}` }}>
+                    <div
+                      className="grid grid-cols-3 gap-2 mt-2 pt-4"
+                      style={{ borderTop: `1px solid ${C.hairlineSoft}` }}
+                    >
                       <div className="text-center">
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Checked in</p>
-                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}>{formatNumber(data.stats.checkedIn.value)}</p>
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>
+                          {mode === "overall" ? "Checked In" : "Arrived"}
+                        </p>
+
+                        <p
+                          className="text-sm font-semibold mt-0.5"
+                          style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}
+                        >
+                          {formatNumber(
+                            mode === "overall"
+                              ? data.stats.checkedIn?.value ?? 0
+                              : data.stats.arrived?.value ?? 0
+                          )}
+                        </p>
                       </div>
+
                       <div className="text-center">
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Completed</p>
-                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.green }}>{formatNumber(data.stats.completed.value)}</p>
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>
+                          Completed
+                        </p>
+
+                        <p
+                          className="text-sm font-semibold mt-0.5"
+                          style={{ color: C.green }}
+                        >
+                          {formatNumber(data.stats.completed?.value ?? 0)}
+                        </p>
                       </div>
+
                       <div className="text-center">
-                        <p className="text-xs" style={{ color: C.mutedSoft }}>Waiting</p>
-                        <p className="text-sm font-semibold mt-0.5" style={{ color: C.rose }}>{formatNumber(data.stats.waiting.value)}</p>
+                        <p className="text-xs" style={{ color: C.mutedSoft }}>
+                          {mode === "overall" ? "Waiting" : "Not Arrived"}
+                        </p>
+
+                        <p
+                          className="text-sm font-semibold mt-0.5"
+                          style={{ color: C.rose }}
+                        >
+                          {formatNumber(
+                            mode === "overall"
+                              ? data.stats.waiting?.value ?? 0
+                              : data.stats.notArrived?.value ?? 0
+                          )}
+                        </p>
                       </div>
                     </div>
                   </div>

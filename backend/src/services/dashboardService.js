@@ -409,41 +409,74 @@ class DashboardService {
     const completed =
         Number(completedRow.completed || 0);
 
-
     // -----------------------------------------------------
-    // CHECKED-IN / IN-PROGRESS STUDENTS
-    // -----------------------------------------------------
-    const [[checkedInRow]] = await this.db.query(`
+// ARRIVED
+// -----------------------------------------------------
 
-        SELECT
+const [[arrivedRow]] = await this.db.query(`
 
-            COUNT(*) AS checkedIn
+    SELECT
+        COUNT(*) AS arrived
 
-        FROM students s
+    FROM students
 
-        WHERE s.expected_date = ?
+    WHERE DATE(arrival_date) = ?
 
-        AND s.arrival_date IS NOT NULL
+`, [date]);
 
-    `, [date]);
-
-
-    const checkedIn =
-        Number(checkedInRow.checkedIn || 0);
+const arrived =
+    Number(arrivedRow.arrived || 0);
 
 
+// -----------------------------------------------------
+// NOT ARRIVED
+// -----------------------------------------------------
 
-    // -----------------------------------------------------
-    // PENDING / NOT ARRIVED STUDENTS
-    // -----------------------------------------------------
+const [[notArrivedRow]] = await this.db.query(`
 
-    const pending =
-        Math.max(
-            expected -
-            (completed + checkedIn),
+    SELECT
+        COUNT(*) AS notArrived
 
-            0
-        );
+    FROM students
+
+    WHERE expected_date = ?
+      AND arrival_date IS NULL
+
+`, [date]);
+
+const notArrived =
+    Number(notArrivedRow.notArrived || 0);
+
+
+// -----------------------------------------------------
+// NOT EXPECTED
+// -----------------------------------------------------
+
+const [[notExpectedRow]] = await this.db.query(`
+
+    SELECT
+        COUNT(*) AS notExpected
+
+    FROM students
+
+    WHERE DATE(arrival_date) = ?
+      AND expected_date <> ?
+
+`, [date, date]);
+
+const notExpected =
+    Number(notExpectedRow.notExpected || 0);
+
+
+// -----------------------------------------------------
+// IN PROGRESS
+// -----------------------------------------------------
+
+const inProgress =
+    Math.max(
+        arrived - completed,
+        0
+    ); 
 
     // -----------------------------------------------------
     // ARRIVAL FLOW
@@ -459,9 +492,7 @@ class DashboardService {
 
         FROM students
 
-        WHERE expected_date = ?
-
-        AND arrival_date IS NOT NULL
+        WHERE DATE(arrival_date) = ?
 
         GROUP BY HOUR(arrival_date)
 
@@ -643,58 +674,55 @@ return {
 
     stats: {
 
-        expected: {
+    expected: {
 
-            value:
-                expected,
+        value: expected,
 
-            subtitle:
-                "Students registered"
-
-        },
-
-
-        checkedIn: {
-
-            value:
-                checkedIn,
-
-            subtitle:
-                expected
-
-                    ? `${Math.round(
-                        checkedIn /
-                        expected *
-                        100
-                    )}% of expected`
-
-                    : "0% of expected"
-
-        },
-
-
-        completed: {
-
-            value:
-                completed,
-
-            subtitle:
-                `${totalDesks} of ${totalDesks} desks completed`
-
-        },
-
-
-        waiting: {
-
-            value:
-                pending,
-
-            subtitle:
-                "Not arrived yet"
-
-        }
+        subtitle: "Students expected"
 
     },
+
+    arrived: {
+
+        value: arrived,
+
+        subtitle: "Arrived today"
+
+    },
+
+    notArrived: {
+
+        value: notArrived,
+
+        subtitle: "Yet to arrive"
+
+    },
+
+    completed: {
+
+        value: completed,
+
+        subtitle: `${totalDesks} of ${totalDesks} desks completed`
+
+    },
+
+    notExpected: {
+
+        value: notExpected,
+
+        subtitle: "Expected on another day"
+
+    },
+
+    inProgress: {
+
+        value: inProgress,
+
+        subtitle: "Arrived but onboarding incomplete"
+
+    }
+
+},
 
 
     arrivalData,
@@ -854,6 +882,11 @@ return {
                     waiting: {
                         value: 0,
                         subtitle: "Never completed"
+                    },
+
+                    notExpected: {
+                        value: 0,
+                        subtitle: "Expected on another day"
                     }
 
                 },
@@ -906,10 +939,7 @@ return {
 
 
             FROM students
-
-
-            WHERE expected_date IN
-                (${placeholders})
+            WHERE expected_date IN (${placeholders})
 
         `, activeDates);
 
@@ -931,6 +961,29 @@ return {
         expected - checkedIn,
         0
     );
+
+        // -----------------------------------------------------
+        // NOT EXPECTED
+        //
+        // Global, across ALL students — anyone whose arrival
+        // date doesn't match their own expected date.
+        // -----------------------------------------------------
+
+        const [[notExpectedRow]] = await this.db.query(`
+
+            SELECT
+
+                COUNT(*) AS notExpected
+
+            FROM students
+
+            WHERE arrival_date IS NOT NULL
+              AND DATE(arrival_date) <> expected_date
+
+        `);
+
+        const notExpected =
+            Number(notExpectedRow.notExpected || 0);
 
         // -----------------------------------------------------
         // DESK PERFORMANCE
@@ -1091,6 +1144,16 @@ return {
                     subtitle:
                         "Never completed"
 
+                },
+
+
+                notExpected: {
+
+                    value: notExpected,
+
+                    subtitle:
+                        "Expected on another day"
+
                 }
 
             },
@@ -1114,6 +1177,4 @@ return {
 
     }
 }
-
-
 module.exports = DashboardService;

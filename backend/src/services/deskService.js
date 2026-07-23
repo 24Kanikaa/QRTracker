@@ -441,31 +441,42 @@ class DeskService {
 
     // Insert log
     await this.db.query(
-      `
-        INSERT INTO logs
-        (
-            student_id,
-            desk_id,
-            scan_time
-        )
-        VALUES (?, ?, NOW())
-        `,
-      [student.id, desk.id],
-    );
-    console.log(desk.id);
-     console.log(desk.is_gate);
-     if (desk.is_gate === 1) {
-      await this.db.query(
-        `
-          UPDATE students
-          SET arrival_date = NOW()
-          WHERE id = ?
-          AND arrival_date IS NULL
-        `,
-        [student.id]
-      );
-    }
+  `
+    INSERT INTO logs
+    (
+      student_id,
+      desk_id,
+      scan_time
+    )
+    VALUES (?, ?, NOW())
+  `,
+  [student.id, desk.id]
+);
 
+
+await this.db.query(
+  `
+    UPDATE students
+    SET
+      current_desk_id = ?,
+
+      arrival_date =
+        CASE
+          WHEN ? = 1
+            AND arrival_date IS NULL
+          THEN NOW()
+
+          ELSE arrival_date
+        END
+
+  WHERE id = ?
+  `,
+  [
+    desk.id,
+    desk.is_gate,
+    student.id
+  ]
+);
     return desk;
   }
 
@@ -565,7 +576,7 @@ class DeskService {
     };
   }
 
-  //for all student report
+//for all student report
 async getStudents(status = "ALL") {
   const [desks] = await this.db.query(`
     SELECT id, desk_name
@@ -576,6 +587,12 @@ async getStudents(status = "ALL") {
 
   const totalDesks = desks.length;
 
+  // DATE_FORMAT() is computed by MySQL itself, in the same session/
+  // timezone context as the dashboard's DATE(arrival_date) comparisons —
+  // so expected_date_key / arrival_date_key are guaranteed to agree with
+  // whatever getDaywiseDashboardData() / getOverallDashboardData() count.
+  // is_unexpected_arrival mirrors those same dashboard queries exactly:
+  //   arrival_date IS NOT NULL AND DATE(arrival_date) <> expected_date
   const [students] = await this.db.query(`
     SELECT
         s.id,
@@ -587,6 +604,13 @@ async getStudents(status = "ALL") {
         s.gender,
         s.expected_date,
         s.arrival_date,
+        DATE_FORMAT(s.expected_date, '%Y-%m-%d') AS expected_date_key,
+        DATE_FORMAT(s.arrival_date, '%Y-%m-%d') AS arrival_date_key,
+        CASE
+            WHEN s.arrival_date IS NOT NULL
+             AND DATE(s.arrival_date) <> s.expected_date
+            THEN 1 ELSE 0
+        END AS is_unexpected_arrival,
         s.status,
         s.remarks,
         d.desk_name AS current_desk
@@ -646,9 +670,14 @@ async getStudents(status = "ALL") {
       name: `${student.first_name} ${student.last_name ?? ""}`.trim(),
       email: student.email,
       gender: student.gender,
-      remarks:student.remarks,
+      remarks: student.remarks,
       expectedDate: student.expected_date,
       arrivalDate: student.arrival_date,
+      // Plain "YYYY-MM-DD" keys, truncated by MySQL — safe to compare
+      // directly on the frontend with zero timezone guesswork.
+      expectedDateKey: student.expected_date_key,
+      arrivalDateKey: student.arrival_date_key, // null if never arrived
+      isUnexpectedArrival: Boolean(student.is_unexpected_arrival),
       currentDesk: student.current_desk,
       completedCount,
       totalDesks,
@@ -664,16 +693,26 @@ async getStudents(status = "ALL") {
       break;
 
     case "IN_PROGRESS":
+      // Arrived (arrival_date set) but hasn't finished every desk yet —
+      // matches the dashboard's `inProgress = arrived - completed`.
       result = result.filter(
         s =>
-          s.completedCount > 0 &&
+          Boolean(s.arrivalDateKey) &&
           s.completedCount < totalDesks
       );
       break;
 
     case "EXPECTED":
+      // Hasn't arrived at all — matches the dashboard's
+      // `arrival_date IS NULL` / `expected - checkedIn`.
       result = result.filter(
-        s => s.completedCount === 0
+        s => !s.arrivalDateKey
+      );
+      break;
+
+    case "UNEXPECTED":
+      result = result.filter(
+        s => s.isUnexpectedArrival
       );
       break;
   }

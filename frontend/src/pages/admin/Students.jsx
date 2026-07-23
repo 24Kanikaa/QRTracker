@@ -17,7 +17,6 @@ import {
   LayoutGrid,
   Search,
   Download,
-  SlidersHorizontal,
   Calendar,
   ChevronDown,
   ChevronLeft,
@@ -26,18 +25,18 @@ import {
   ChevronsRight,
   CircleDashed,
   X,
-  MessageSquare,
   Check,
   Minus,
   User as UserIcon,
   Tag,
+  AlertTriangle,
 } from "lucide-react";
-import { getStudentOverview, } from "../../services/deskService";
-import {getStudentInfo,updateStudentRemarks} from  "../../services/settingServices";
+import { getStudentOverview } from "../../services/deskService";
+import { getStudentInfo, updateStudentRemarks } from "../../services/settingServices";
+import { getDashboardData } from "../../services/Dashboardservice";
 import Swal from "sweetalert2";
 import { useTheme } from "../../context/ThemeContext";
-import { GhostButton,Modal,PrimaryButton } from "./Settings";
-
+import { GhostButton, Modal, PrimaryButton } from "./Settings";
 
 /* ============================================================
    DESK ICON MAPPING — desks now come from the backend, so we
@@ -63,11 +62,44 @@ function getDeskIcon(deskName) {
 }
 
 function slugifyDeskName(deskName) {
-  return (deskName || "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "desk";
+  return (
+    (deskName || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "desk"
+  );
+}
+
+/* ============================================================
+   STATUS — mirrors the exact rules the backend dashboard uses
+   in both getDaywiseDashboardData() and getOverallDashboardData(),
+   so the counts/tabs on this page always agree with the Dashboard:
+
+     COMPLETED    -> distinct desks scanned === total active desks
+                     (backend: HAVING COUNT(DISTINCT l.desk_id) = totalDesks)
+
+     IN_PROGRESS  -> arrival_date is set, but not yet COMPLETED
+                     (backend daywise: inProgress = arrived - completed)
+
+     EXPECTED     -> arrival_date is still NULL
+                     (backend daywise: notArrived = expected_date = ?
+                      AND arrival_date IS NULL
+                      backend overall: waiting = expected - checkedIn,
+                      where checkedIn = arrival_date IS NOT NULL)
+
+   IMPORTANT: the previous version of this page derived status purely
+   from completedCount (ignoring arrivalDate entirely), so a student
+   who had already arrived but hadn't scanned a single desk yet was
+   incorrectly bucketed as "Expected / Not Arrived" instead of
+   "In Progress" — that's what caused the numbers here to drift from
+   the Dashboard's Overall / Day Wise tabs.
+   ============================================================ */
+
+function computeStatus(completedCount, totalDesks, arrivalDate) {
+  if (totalDesks > 0 && completedCount === totalDesks) return "COMPLETED";
+  if (arrivalDate) return "IN_PROGRESS";
+  return "EXPECTED";
 }
 
 /* ============================================================
@@ -89,11 +121,9 @@ function normalizeOverview(payload) {
   const students = studentsRaw.map((s) => {
     const totalDesks = s.totalDesks ?? desks.length;
     const completedCount = s.completedCount ?? 0;
+    const arrivalDate = s.arrivalDate;
 
-    let status = "EXPECTED";
-    if (totalDesks > 0 && completedCount === totalDesks) status = "COMPLETED";
-    else if (completedCount > 0) status = "IN_PROGRESS";
-
+    const status = computeStatus(completedCount, totalDesks, arrivalDate);
     const progress = totalDesks > 0 ? Math.round((completedCount / totalDesks) * 100) : 0;
 
     const cells = {};
@@ -102,11 +132,11 @@ function normalizeOverview(payload) {
       cells[col.key] =
         entry && entry.status === "completed" && entry.time
           ? new Date(entry.time).toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        })
-      : null;
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            })
+          : null;
     });
 
     return {
@@ -117,9 +147,16 @@ function normalizeOverview(payload) {
       email: s.email,
       gender: s.gender,
       expectedDate: s.expectedDate,
-      arrivalDate: s.arrivalDate,
+      arrivalDate,
+      // Plain "YYYY-MM-DD" keys computed by MySQL (DATE_FORMAT), and a
+      // ready-made unexpected-arrival flag computed with the exact same
+      // predicate the dashboard's SQL uses. No date parsing/timezone
+      // guessing needed on the frontend anymore.
+      expectedDateKey: s.expectedDateKey,
+      arrivalDateKey: s.arrivalDateKey,
+      isUnexpectedArrival: Boolean(s.isUnexpectedArrival),
       currentDesk: s.currentDesk,
-       remarks: s.remarks,
+      remarks: s.remarks,
       completedCount,
       totalDesks,
       progress,
@@ -171,7 +208,10 @@ function Cell({ value, C }) {
   if (!value) {
     return (
       <div className="flex justify-center">
-        <span className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap" style={{ color: C.mutedSoft, borderColor: C.hairline }}>
+        <span
+          className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
+          style={{ color: C.mutedSoft, borderColor: C.hairline }}
+        >
           Pending
         </span>
       </div>
@@ -179,8 +219,13 @@ function Cell({ value, C }) {
   }
   return (
     <div className="flex justify-center">
-      <span className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap" style={{ background: C.greenSoft, borderColor: C.greenSoft }}>
-        <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.green }}>{value}</span>
+      <span
+        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
+        style={{ background: C.greenSoft, borderColor: C.greenSoft }}
+      >
+        <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.green }}>
+          {value}
+        </span>
       </span>
     </div>
   );
@@ -197,26 +242,19 @@ function StudentIdentity({ student, C }) {
         {name.charAt(0).toUpperCase()}
       </div>
       <div>
-        <h3 className="font-semibold text-sm" style={{ color: C.text }}>{name}</h3>
+        <h3 className="font-semibold text-sm" style={{ color: C.text }}>
+          {name}
+        </h3>
         <p className="text-xs" style={{ color: C.muted }}>
           {student.email}
-          {/* {student.rollNumber ? ` | ${student.rollNumber}` : ""} */}
         </p>
       </div>
     </div>
   );
 }
 
-function StudentProfileModal({
-  open,
-  student,
-  loading,
-  onClose,
-  C,
-  onRemarksSaved,
-}) {
-
- const [remarks, setRemarks] = useState("");
+function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSaved }) {
+  const [remarks, setRemarks] = useState("");
   const [savingRemarks, setSavingRemarks] = useState(false);
 
   useEffect(() => {
@@ -240,18 +278,14 @@ function StudentProfileModal({
         showConfirmButton: false,
       });
 
-      // Update the parent/table data
       onRemarksSaved?.(student.id, remarks);
-
     } catch (err) {
       console.error(err);
 
       Swal.fire({
         icon: "error",
         title: "Unable to save remarks",
-        text:
-          err.response?.data?.message ||
-          "Something went wrong while saving remarks.",
+        text: err.response?.data?.message || "Something went wrong while saving remarks.",
       });
     } finally {
       setSavingRemarks(false);
@@ -259,12 +293,7 @@ function StudentProfileModal({
   };
 
   return (
-    <Modal
-      title="Student Profile"
-      width={900}
-      onClose={onClose}
-      C={C}
-    >
+    <Modal title="Student Profile" width={900} onClose={onClose} C={C}>
       {loading ? (
         <div className="py-20 text-center text-sm" style={{ color: C.muted }}>
           Loading student profile...
@@ -292,25 +321,16 @@ function StudentProfileModal({
               </div>
 
               <div>
-                <h2
-                  className="text-xl font-bold"
-                  style={{ color: C.text }}
-                >
+                <h2 className="text-xl font-bold" style={{ color: C.text }}>
                   {student?.first_name} {student?.last_name}
                 </h2>
 
-                <p
-                  className="text-sm mt-1"
-                  style={{ color: C.muted }}
-                >
-                  {student?.email}  
+                <p className="text-sm mt-1" style={{ color: C.muted }}>
+                  {student?.email}
                 </p>
-                <p
-                className="font-semibold mt-1"
-                style={{ color: C.text }}
-              >
-                {student?.roll_number || "—"}
-              </p>
+                <p className="font-semibold mt-1" style={{ color: C.text }}>
+                  {student?.roll_number || "—"}
+                </p>
 
                 <div className="flex gap-2 mt-2">
                   <span
@@ -339,8 +359,6 @@ function StudentProfileModal({
 
           {/* Sections */}
           <div className="grid grid-cols-2 gap-5">
-
-            {/* Personal */}
             <Section title="Personal Information" C={C}>
               <Info label="Application No." value={student?.application_number} />
               <Info label="Gender" value={student?.gender} />
@@ -349,7 +367,6 @@ function StudentProfileModal({
               <Info label="Mobile" value={student?.mobile_number} />
             </Section>
 
-            {/* Parents */}
             <Section title="Parent Details" C={C}>
               <Info label="Father" value={student?.father_name} />
               <Info label="Father Mobile" value={student?.guardian1_mobile} />
@@ -357,20 +374,17 @@ function StudentProfileModal({
               <Info label="Mother Mobile" value={student?.guardian2_mobile} />
             </Section>
 
-            {/* Address */}
             <Section title="Location" C={C}>
               <Info label="State" value={student?.state} />
               <Info label="Country" value={student?.country} />
               <Info label="Nationality" value={student?.nationality} />
             </Section>
 
-            {/* Admission */}
             <Section title="Onboarding" C={C}>
               <Info label="Expected Arrival" value={formatDate(student?.expected_date)} />
               <Info label="Actual Arrival" value={formatDate(student?.arrival_date)} />
               <Info label="Admission Year" value={student?.admission_year} />
             </Section>
-
           </div>
 
           {/* Remarks */}
@@ -381,10 +395,7 @@ function StudentProfileModal({
               border: `1px solid ${C.hairline}`,
             }}
           >
-            <label
-              className="block text-sm font-semibold mb-3"
-              style={{ color: C.text }}
-            >
+            <label className="block text-sm font-semibold mb-3" style={{ color: C.text }}>
               Internal Remarks
             </label>
 
@@ -407,13 +418,9 @@ function StudentProfileModal({
               Close
             </GhostButton>
 
-            <PrimaryButton
-            C={C}
-            onClick={handleSaveRemarks}
-            disabled={savingRemarks}
-          >
-            {savingRemarks ? "Saving..." : "Save Remarks"}
-          </PrimaryButton>
+            <PrimaryButton C={C} onClick={handleSaveRemarks} disabled={savingRemarks}>
+              {savingRemarks ? "Saving..." : "Save Remarks"}
+            </PrimaryButton>
           </div>
         </>
       )}
@@ -430,33 +437,23 @@ function Section({ title, children, C }) {
         border: `1px solid ${C.hairline}`,
       }}
     >
-      <h3
-        className="text-sm font-semibold mb-4"
-        style={{ color: C.text }}
-      >
+      <h3 className="text-sm font-semibold mb-4" style={{ color: C.text }}>
         {title}
       </h3>
 
-      <div className="space-y-3">
-        {children}
-      </div>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }
 
-
 function Info({ label, value }) {
-    return (
-        <div>
-            <div className="text-xs text-slate-500 mb-1">
-                {label}
-            </div>
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
 
-            <div className="font-medium">
-                {value || "—"}
-            </div>
-        </div>
-    );
+      <div className="font-medium">{value || "—"}</div>
+    </div>
+  );
 }
 
 /* ============================================================
@@ -473,20 +470,8 @@ export default function AdmissionOverviewPage() {
   const [selectedDate, setSelectedDate] = useState("all");
   const [statusTab, setStatusTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const handleFilterToggle = () => {
-  setFilterOpen((prev) => {
-    const next = !prev;
 
-    if (!next) {
-      setActiveCategory(null);
-    }
-
-    return next;
-  });
-};
-
-  // which single category dropdown is currently open (desk | gender | remarks | null)
+  // which single category dropdown is currently open (daywise | desk | gender | arrived | null)
   const [activeCategory, setActiveCategory] = useState(null);
   const toggleCategory = (key) => {
     setActiveCategory((prev) => (prev === key ? null : key));
@@ -499,6 +484,13 @@ export default function AdmissionOverviewPage() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentProfile, setStudentProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+
+  // Authoritative "not expected" count, sourced from the same dashboard
+  // endpoint the Dashboard page uses: getOverallDashboardData when viewing
+  // "All dates" (selectedDate === "all"), or getDaywiseDashboardData when
+  // a specific date is selected. This guarantees both pages always agree.
+  const [notExpectedCount, setNotExpectedCount] = useState(null);
+
   const openStudentProfile = async (student) => {
     try {
       setSelectedStudent(student);
@@ -545,13 +537,41 @@ export default function AdmissionOverviewPage() {
     setPage(1);
   }, [search, selectedDate, statusTab, activeFilters]);
 
+  // Fetch the authoritative "not expected" count from the same endpoints
+  // the Dashboard page uses. "All dates" -> overall mode (global count,
+  // across every student). A specific date -> daywise mode (scoped to
+  // that single date), matching each backend query exactly.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getDashboardData({
+          mode: selectedDate === "all" ? "overall" : "daywise",
+          date: selectedDate === "all" ? null : selectedDate,
+        });
+        if (cancelled) return;
+        setNotExpectedCount(Number(res.data.stats?.notExpected?.value ?? 0));
+      } catch (err) {
+        if (!cancelled) setNotExpectedCount(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
   const dates = useMemo(
-    () => Array.from(new Set(students.map((s) => s.expectedDate).filter(Boolean))).sort(),
+    () => Array.from(new Set(students.map((s) => s.expectedDateKey).filter(Boolean))).sort(),
     [students]
   );
 
+  // "All dates" -> overall population (every student, matching the
+  // backend's getOverallDashboardData which scopes to expected_date IN
+  // activeDates, i.e. every admission date).
+  // A specific date -> daywise population, matching getDaywiseDashboardData's
+  // `WHERE expected_date = ?` used for expected/completed/notArrived.
   const dateFiltered = useMemo(
-    () => (selectedDate === "all" ? students : students.filter((s) => s.expectedDate === selectedDate)),
+    () => (selectedDate === "all" ? students : students.filter((s) => s.expectedDateKey === selectedDate)),
     [students, selectedDate]
   );
 
@@ -572,13 +592,12 @@ export default function AdmissionOverviewPage() {
     () => activeFilters.filter((f) => f.category === "gender").map((f) => f.value),
     [activeFilters]
   );
-  const selectedRemarks = useMemo(
-    () => activeFilters.filter((f) => f.category === "remarks").map((f) => f.value),
+  const selectedArrived = useMemo(
+    () => activeFilters.filter((f) => f.category === "arrived").map((f) => f.value),
     [activeFilters]
   );
 
-  const isFilterSelected = (category, value) =>
-    activeFilters.some((f) => f.category === category && f.value === value);
+  const isFilterSelected = (category, value) => activeFilters.some((f) => f.category === category && f.value === value);
 
   const toggleFilter = (category, value, label) => {
     setActiveFilters((prev) =>
@@ -592,25 +611,70 @@ export default function AdmissionOverviewPage() {
     setActiveFilters((prev) => prev.filter((f) => !(f.category === category && f.value === value)));
   };
 
-  const clearAllFilters = () => setActiveFilters([]);
+  const clearAllFilters = () => {
+    setActiveFilters([]);
+    setSelectedDate("all");
+  };
 
   // desks: student must have completed ALL selected desks
-  // gender / remarks: student must match ANY selected value in that category
+  // gender / arrived: student must match ANY selected value in that category
   const deskFiltered = useMemo(
     () =>
       searchFiltered.filter((s) => {
         const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
-        const genderOk =
-          selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
-        const remarksOk =
-          selectedRemarks.length === 0 || selectedRemarks.includes(s.remarks?.trim() ? "yes" : "no");
-        return deskOk && genderOk && remarksOk;
+        const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
+        const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
+        return deskOk && genderOk && arrivedOk;
       }),
-    [searchFiltered, selectedDeskKeys, selectedGenders, selectedRemarks]
+    [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived]
   );
 
+  // Students whose arrival date doesn't match their expected date.
+  // Uses the backend's precomputed keys directly — no date parsing here:
+  //  - "All dates": isUnexpectedArrival (arrival_date IS NOT NULL AND
+  //     DATE(arrival_date) <> expected_date, computed by MySQL)
+  //  - Specific date: arrivalDateKey === date AND expectedDateKey !== date
+  const unexpectedArrivals = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    const base = students.filter((s) => {
+      if (selectedDate === "all") {
+        return s.isUnexpectedArrival;
+      }
+      return s.arrivalDateKey === selectedDate && s.expectedDateKey !== selectedDate;
+    });
+
+    return base.filter((s) => {
+      const searchOk = !q || (s.email || "").toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q);
+      const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+      const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
+      const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
+      return searchOk && deskOk && genderOk && arrivedOk;
+    });
+  }, [students, selectedDate, search, selectedDeskKeys, selectedGenders, selectedArrived]);
+
+  // Are any search/desk/gender/arrived filters currently narrowing the
+  // list? Only in this "nothing extra applied" state does the backend's
+  // global notExpectedCount describe the same population as
+  // unexpectedArrivals — so it's only safe to show it then.
+  const hasExtraFilters =
+    Boolean(search.trim()) || selectedDeskKeys.length > 0 || selectedGenders.length > 0 || selectedArrived.length > 0;
+
   const counts = useMemo(() => {
-    const c = { all: deskFiltered.length, completed: 0, inprogress: 0, expected: 0 };
+    const c = {
+      all: deskFiltered.length,
+      completed: 0,
+      inprogress: 0,
+      expected: 0,
+      // The badge must always describe what's actually rendered in the
+      // "Unexpected Arrivals" tab. unexpectedArrivals already applies
+      // search/desk/gender/arrived filters, so use its length directly.
+      // Only when no extra filters are active do we additionally prefer
+      // the backend's authoritative count (it matches the Dashboard
+      // exactly in that unfiltered case) — falling back to the local
+      // count if it hasn't loaded yet or the call failed.
+      unexpected: hasExtraFilters ? unexpectedArrivals.length : (notExpectedCount ?? unexpectedArrivals.length),
+    };
     deskFiltered.forEach((s) => {
       const key = s.status.toLowerCase();
       if (key === "completed") c.completed++;
@@ -618,14 +682,15 @@ export default function AdmissionOverviewPage() {
       else c.expected++;
     });
     return c;
-  }, [deskFiltered]);
+  }, [deskFiltered, unexpectedArrivals, notExpectedCount, hasExtraFilters]);
 
   const visibleStudents = useMemo(() => {
     if (statusTab === "all") return deskFiltered;
     if (statusTab === "completed") return deskFiltered.filter((s) => s.status === "COMPLETED");
     if (statusTab === "inprogress") return deskFiltered.filter((s) => s.status === "IN_PROGRESS");
+    if (statusTab === "unexpected") return unexpectedArrivals;
     return deskFiltered.filter((s) => s.status === "EXPECTED");
-  }, [deskFiltered, statusTab]);
+  }, [deskFiltered, statusTab, unexpectedArrivals]);
 
   const totalPages = Math.max(1, Math.ceil(visibleStudents.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -642,14 +707,19 @@ export default function AdmissionOverviewPage() {
     { key: "completed", label: "Completed", icon: CheckCircle2, count: counts.completed },
     { key: "inprogress", label: "In Progress", icon: Clock3, count: counts.inprogress },
     { key: "expected", label: "Not Arrived", icon: CircleDashed, count: counts.expected },
+    { key: "unexpected", label: "Unexpected Arrivals", icon: AlertTriangle, count: counts.unexpected },
   ];
 
   const handleExport = () => {
     const isExpected = statusTab === "expected";
+    const isUnexpected = statusTab === "unexpected";
     let header, rows;
     if (isExpected) {
       header = ["#", "Name", "Email", "Onboarding Day", "Status"];
       rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), "Awaiting check-in"]);
+    } else if (isUnexpected) {
+      header = ["#", "Name", "Email", "Expected Day", "Arrival Date"];
+      rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), formatDate(s.arrivalDate)]);
     } else {
       header = ["#", "Name", "Email", "Progress %", "Current Desk", ...desks.map((d) => d.title), "Remarks"];
       rows = visibleStudents.map((s, i) => [
@@ -666,10 +736,13 @@ export default function AdmissionOverviewPage() {
   };
 
   const filterCategories = [
+    { key: "daywise", label: "Daywise", icon: Calendar },
     { key: "desk", label: "Desk", icon: LayoutGrid },
     { key: "gender", label: "Gender", icon: UserIcon },
-    { key: "remarks", label: "Remarks", icon: Tag },
+    { key: "arrived", label: "Has arrived", icon: Check },
   ];
+
+  const totalActiveFilterCount = activeFilters.length + (selectedDate !== "all" ? 1 : 0);
 
   return (
     <div style={{ background: C.bg, minHeight: "100%" }} className="transition-colors duration-300 p-6 md:p-10">
@@ -695,22 +768,6 @@ export default function AdmissionOverviewPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="relative w-full sm:w-52 shrink-0">
-              <Calendar size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: C.muted }} />
-              <select
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-full appearance-none pl-9 pr-8 h-11 rounded-xl text-sm font-medium outline-none transition"
-                style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.text, boxShadow: C.cardShadow }}
-              >
-                <option value="all">All dates</option>
-                {dates.map((d) => (
-                  <option key={d} value={d}>{formatDate(d)}</option>
-                ))}
-              </select>
-              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: C.muted }} />
-            </div>
-
             <button
               onClick={toggleDark}
               className="w-11 h-11 rounded-xl flex items-center justify-center transition shrink-0"
@@ -732,7 +789,9 @@ export default function AdmissionOverviewPage() {
             className="rounded-2xl p-4 mb-4 flex items-center justify-between gap-4"
             style={{ background: C.roseSoft, border: `1px solid ${C.rose}` }}
           >
-            <p className="text-sm font-medium" style={{ color: C.rose }}>{error}</p>
+            <p className="text-sm font-medium" style={{ color: C.rose }}>
+              {error}
+            </p>
             <button
               onClick={loadStudents}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
@@ -746,48 +805,86 @@ export default function AdmissionOverviewPage() {
         {/* ---- loading state ---- */}
         {loading && students.length === 0 && !error ? (
           <div className="rounded-2xl py-20 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
-            <p className="text-sm" style={{ color: C.muted }}>Loading students…</p>
+            <p className="text-sm" style={{ color: C.muted }}>
+              Loading students…
+            </p>
           </div>
         ) : (
           <>
-            {/* ---- filters bar ---- */}
+            {/* ---- filters bar (always visible, no toggle) ---- */}
             <div className="rounded-2xl p-4 mb-3" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-              <div className="flex flex-col lg:flex-row gap-3 justify-between">
-                <div className="relative w-full lg:max-w-md">
-                  <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search student by name or email..."
-                    className="w-full pl-10 pr-4 h-11 rounded-xl outline-none transition text-sm"
-                    style={{ background: C.panel2, border: `1px solid ${C.hairline}`, color: C.text }}
-                  />
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                {/* category pills */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
+                    Filter by
+                  </p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {filterCategories.map((cat) => {
+                      const Icon = cat.icon;
+                      const isOpen = activeCategory === cat.key;
+                      const activeCount =
+                        cat.key === "daywise"
+                          ? selectedDate !== "all"
+                            ? 1
+                            : 0
+                          : activeFilters.filter((f) => f.category === cat.key).length;
+
+                      return (
+                        <button
+                          key={cat.key}
+                          onClick={() => toggleCategory(cat.key)}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors"
+                          style={{
+                            background: isOpen || activeCount > 0 ? C.brassSoft : C.panel2,
+                            borderColor: isOpen || activeCount > 0 ? C.brass : C.hairline,
+                            color: isOpen || activeCount > 0 ? C.brass : C.text,
+                          }}
+                        >
+                          <Icon size={15} />
+                          {cat.label}
+                          {activeCount > 0 && (
+                            <span
+                              className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
+                              style={{ background: C.brass }}
+                            >
+                              {activeCount}
+                            </span>
+                          )}
+                          <ChevronDown
+                            size={14}
+                            style={{
+                              transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                              transition: "transform 150ms ease",
+                            }}
+                          />
+                        </button>
+                      );
+                    })}
+
+                    {totalActiveFilterCount > 0 && (
+                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
+                        <X size={12} /> Clear all
+                      </button>
+                    )}
+                  </div>
                 </div>
 
+                {/* search + export, in place of the old Filters toggle button */}
                 <div className="flex gap-2.5">
-                  <button
-                     onClick={handleFilterToggle}
-                    className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium transition relative"
-                    style={{
-                      background: filterOpen ? C.brassSoft : C.panel,
-                      border: `1px solid ${filterOpen ? C.brass : C.hairline}`,
-                      color: filterOpen ? C.brass : C.text,
-                    }}
-                  >
-                    <SlidersHorizontal size={16} />
-                    Filters
-                    {activeFilters.length > 0 && (
-                      <span
-                        className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
-                        style={{ background: C.brass }}
-                      >
-                        {activeFilters.length}
-                      </span>
-                    )}
-                  </button>
+                  <div className="relative w-full lg:w-64">
+                    <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search student by name or email..."
+                      className="w-full pl-10 pr-4 h-11 rounded-xl outline-none transition text-sm"
+                      style={{ background: C.panel2, border: `1px solid ${C.hairline}`, color: C.text }}
+                    />
+                  </div>
                   <button
                     onClick={handleExport}
-                    className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium text-white transition"
+                    className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium text-white transition shrink-0"
                     style={{ background: C.brass }}
                   >
                     <Download size={16} />
@@ -796,264 +893,149 @@ export default function AdmissionOverviewPage() {
                 </div>
               </div>
 
-              {/* expandable filter panel: compact side-by-side category pills, each with its own dropdown */}
-              <div className={`grid transition-all duration-300 ease-out ${filterOpen ? "grid-rows-[1fr] opacity-100 mt-4" : "grid-rows-[0fr] opacity-0"}`}>
-                <div className={filterOpen ? "overflow-visible" : "overflow-hidden"}>
-                  <div className="pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
-
-                    {/* active filter chips */}
-                    {activeFilters.length > 0 && (
-                      <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-                        <div className="flex flex-wrap gap-2">
-                          {activeFilters.map((f) => (
-                            <span
-                              key={`${f.category}-${f.value}`}
-                              className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                              style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                            >
-                              {f.label}
-                              <button
-                                onClick={() => removeFilter(f.category, f.value)}
-                                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                                style={{ background: C.brass, color: "#fff" }}
-                              >
-                                <X size={10} />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                        <button
-                          onClick={clearAllFilters}
-                          className="flex items-center gap-1 text-xs font-medium shrink-0"
-                          style={{ color: C.muted }}
-                        >
-                          <X size={12} /> Clear all
-                        </button>
-                      </div>
-                    )}
-
-                    {/* ---- side-by-side category pills, each with its own dropdown ---- */}
-                    <div ref={filterBarRef} className="space-y-3">
-
-                      {/* Main filter categories */}
-                      <div className="flex items-center gap-2 flex-wrap">
-
-                        {filterCategories.map((cat) => {
-                          const Icon = cat.icon;
-                          const isOpen = activeCategory === cat.key;
-
-                          const activeCount = activeFilters.filter(
-                            (f) => f.category === cat.key
-                          ).length;
-
-                          return (
-                            <button
-                              key={cat.key}
-                              onClick={() => toggleCategory(cat.key)}
-                              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors"
-                              style={{
-                                background:
-                                  isOpen || activeCount > 0
-                                    ? C.brassSoft
-                                    : C.panel2,
-
-                                borderColor:
-                                  isOpen || activeCount > 0
-                                    ? C.brass
-                                    : C.hairline,
-
-                                color:
-                                  isOpen || activeCount > 0
-                                    ? C.brass
-                                    : C.text,
-                              }}
-                            >
-                              <Icon size={15} />
-
-                              {cat.label}
-
-                              {activeCount > 0 && (
-                                <span
-                                  className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold text-white"
-                                  style={{ background: C.brass }}
-                                >
-                                  {activeCount}
-                                </span>
-                              )}
-
-                              <ChevronDown
-                                size={14}
-                                style={{
-                                  transform: isOpen
-                                    ? "rotate(180deg)"
-                                    : "rotate(0deg)",
-                                  transition: "transform 150ms ease",
-                                }}
-                              />
-                            </button>
-                          );
-                        })}
-                      </div>
-
-
-                      {/* Filter options row */}
-                      {activeCategory && (
-                        <div
-                          className="flex flex-wrap items-center gap-2 pt-3"
-                          style={{
-                            borderTop: `1px solid ${C.hairline}`,
-                          }}
-                        >
-
-                          {/* DESK OPTIONS */}
-                          {activeCategory === "desk" &&
-                            desks.map((col) => {
-                              const DeskIcon = col.icon;
-
-                              const active = isFilterSelected(
-                                "desk",
-                                col.key
-                              );
-
-                              return (
-                                <button
-                                  key={col.key}
-                                  onClick={() =>
-                                    toggleFilter(
-                                      "desk",
-                                      col.key,
-                                      col.title
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                  style={
-                                    active
-                                      ? {
-                                          background: C.brass,
-                                          borderColor: C.brass,
-                                          color: "#fff",
-                                        }
-                                      : {
-                                          background: C.panel2,
-                                          borderColor: C.hairline,
-                                          color: C.text,
-                                        }
-                                  }
-                                >
-                                  <DeskIcon size={14} />
-                                  {col.title}
-                                </button>
-                              );
-                            })}
-
-
-                          {/* GENDER OPTIONS */}
-                          {activeCategory === "gender" &&
-                            ["Male", "Female"].map((g) => {
-                              const value = g.toLowerCase();
-
-                              const active = isFilterSelected(
-                                "gender",
-                                value
-                              );
-
-                              return (
-                                <button
-                                  key={g}
-                                  onClick={() =>
-                                    toggleFilter(
-                                      "gender",
-                                      value,
-                                      g
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                  style={
-                                    active
-                                      ? {
-                                          background: C.brass,
-                                          borderColor: C.brass,
-                                          color: "#fff",
-                                        }
-                                      : {
-                                          background: C.panel2,
-                                          borderColor: C.hairline,
-                                          color: C.text,
-                                        }
-                                  }
-                                >
-                                  <UserIcon size={14} />
-                                  {g}
-                                </button>
-                              );
-                            })}
-
-
-                          {/* REMARKS OPTIONS */}
-                          {activeCategory === "remarks" &&
-                            [
-                              {
-                                value: "yes",
-                                label: "Has remarks",
-                              },
-                              {
-                                value: "no",
-                                label: "No remarks",
-                              },
-                            ].map((r) => {
-                              const active = isFilterSelected(
-                                "remarks",
-                                r.value
-                              );
-
-                              return (
-                                <button
-                                  key={r.value}
-                                  onClick={() =>
-                                    toggleFilter(
-                                      "remarks",
-                                      r.value,
-                                      r.label
-                                    )
-                                  }
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
-                                  style={
-                                    active
-                                      ? {
-                                          background: C.brass,
-                                          borderColor: C.brass,
-                                          color: "#fff",
-                                        }
-                                      : {
-                                          background: C.panel2,
-                                          borderColor: C.hairline,
-                                          color: C.text,
-                                        }
-                                  }
-                                >
-                                  {r.value === "yes" ? (
-                                    <Check size={10} />
-                                  ) : (
-                                    <Minus size={10} />
-                                  )}
-
-                                  {r.label}
-                                </button>
-                              );
-                            })}
-
-                        </div>
-                      )}
-
-                    </div>
-                  </div>
+              {/* active filter chips */}
+              {(activeFilters.length > 0 || selectedDate !== "all") && (
+                <div className="flex flex-wrap gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
+                  {selectedDate !== "all" && (
+                    <span
+                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                    >
+                      {formatDate(selectedDate)}
+                      <button
+                        onClick={() => setSelectedDate("all")}
+                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                        style={{ background: C.brass, color: "#fff" }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  )}
+                  {activeFilters.map((f) => (
+                    <span
+                      key={`${f.category}-${f.value}`}
+                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                    >
+                      {f.label}
+                      <button
+                        onClick={() => removeFilter(f.category, f.value)}
+                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                        style={{ background: C.brass, color: "#fff" }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
                 </div>
-              </div>
+              )}
+
+              {/* expanded options for the currently active category */}
+              {activeCategory && (
+                <div ref={filterBarRef} className="flex flex-wrap items-center gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
+                  {/* DAYWISE OPTIONS — single select, drives selectedDate */}
+                  {activeCategory === "daywise" &&
+                    dates.map((d) => {
+                      const active = selectedDate === d;
+                      return (
+                        <button
+                          key={d}
+                          onClick={() => setSelectedDate(active ? "all" : d)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                          style={
+                            active
+                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                          }
+                        >
+                          <Calendar size={14} />
+                          {formatDate(d)}
+                        </button>
+                      );
+                    })}
+                  {activeCategory === "daywise" && dates.length === 0 && (
+                    <p className="text-xs" style={{ color: C.mutedSoft }}>
+                      No admission dates yet
+                    </p>
+                  )}
+
+                  {/* DESK OPTIONS */}
+                  {activeCategory === "desk" &&
+                    desks.map((col) => {
+                      const DeskIcon = col.icon;
+                      const active = isFilterSelected("desk", col.key);
+                      return (
+                        <button
+                          key={col.key}
+                          onClick={() => toggleFilter("desk", col.key, col.title)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                          style={
+                            active
+                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                          }
+                        >
+                          <DeskIcon size={14} />
+                          {col.title}
+                        </button>
+                      );
+                    })}
+
+                  {/* GENDER OPTIONS */}
+                  {activeCategory === "gender" &&
+                    ["Male", "Female"].map((g) => {
+                      const value = g.toLowerCase();
+                      const active = isFilterSelected("gender", value);
+                      return (
+                        <button
+                          key={g}
+                          onClick={() => toggleFilter("gender", value, g)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                          style={
+                            active
+                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                          }
+                        >
+                          <UserIcon size={14} />
+                          {g}
+                        </button>
+                      );
+                    })}
+
+                  {/* HAS ARRIVED OPTIONS */}
+                  {activeCategory === "arrived" &&
+                    [
+                      { value: "yes", label: "Arrived" },
+                      { value: "no", label: "Not arrived" },
+                    ].map((r) => {
+                      const active = isFilterSelected("arrived", r.value);
+                      return (
+                        <button
+                          key={r.value}
+                          onClick={() => toggleFilter("arrived", r.value, r.label)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+                          style={
+                            active
+                              ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+                              : { background: C.panel2, borderColor: C.hairline, color: C.text }
+                          }
+                        >
+                          {r.value === "yes" ? <Check size={10} /> : <Minus size={10} />}
+                          {r.label}
+                        </button>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* ---- status tabs ---- */}
             <div className="mb-5">
-              <div className="inline-flex flex-wrap rounded-2xl p-1 gap-1" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+              <div
+                className="inline-flex flex-wrap rounded-2xl p-1 gap-1"
+                style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}
+              >
                 {statusTabs.map((tab) => {
                   const Icon = tab.icon;
                   const active = statusTab === tab.key;
@@ -1068,7 +1050,7 @@ export default function AdmissionOverviewPage() {
                       {tab.label}
                       <span
                         className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded-full text-xs font-semibold"
-                        style={{ background: active ? "rgba(255,255,255,0.25)" : C.hairlineSoft, color: active ? "#fff" : C.muted}}
+                        style={{ background: active ? "rgba(255,255,255,0.25)" : C.hairlineSoft, color: active ? "#fff" : C.muted }}
                       >
                         {tab.count}
                       </span>
@@ -1078,7 +1060,7 @@ export default function AdmissionOverviewPage() {
               </div>
             </div>
 
-            {/* ---- table / expected list ---- */}
+            {/* ---- table / expected list / unexpected arrivals list ---- */}
             {visibleStudents.length === 0 ? (
               <div className="rounded-2xl py-16 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
                 <p className="text-sm" style={{ color: C.muted }}>
@@ -1090,39 +1072,120 @@ export default function AdmissionOverviewPage() {
                 <table className="w-full table-auto">
                   <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
                     <tr>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>#</th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>Student</th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>Onboarding day</th>
-                      <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>Status</th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
+                        #
+                      </th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                        Student
+                      </th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                        Onboarding day
+                      </th>
+                      <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedStudents.map((student, index) => (
                       <tr
-                          key={student.id}
-                          onClick={() => openStudentProfile(student)}
-                          className="cursor-pointer transition-colors"
-                          style={{
-                              borderBottom: `1px solid ${C.hairline}`,
-                          }}
-                          onMouseEnter={(e) =>
-                              (e.currentTarget.style.background = C.panel2)
-                          }
-                          onMouseLeave={(e) =>
-                              (e.currentTarget.style.background = "transparent")
-                          }
+                        key={student.id}
+                        onClick={() => openStudentProfile(student)}
+                        className="cursor-pointer transition-colors"
+                        style={{ borderBottom: `1px solid ${C.hairline}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                       >
                         <td className="px-3 py-3.5">
-                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium" style={{ background: C.panel2, color: C.muted }}>
+                          <span
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
+                            style={{ background: C.panel2, color: C.muted }}
+                          >
                             {rangeStart + index}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5"><StudentIdentity student={student} C={C} /></td>
-                        <td className="px-5 py-3.5"><span className="text-sm" style={{ color: C.text }}>{formatDate(student.expectedDate)}</span></td>
+                        <td className="px-5 py-3.5">
+                          <StudentIdentity student={student} C={C} />
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span className="text-sm" style={{ color: C.text }}>
+                            {formatDate(student.expectedDate)}
+                          </span>
+                        </td>
                         <td className="px-5 py-3.5 text-right">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed" style={{ color: C.muted, borderColor: C.hairline }}>
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed"
+                            style={{ color: C.muted, borderColor: C.hairline }}
+                          >
                             <CircleDashed size={12} />
                             Awaiting check-in
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : statusTab === "unexpected" ? (
+              <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                <table className="w-full table-auto">
+                  <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                    <tr>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
+                        #
+                      </th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                        Student
+                      </th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                        Expected day
+                      </th>
+                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                        Actual arrival
+                      </th>
+                      <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedStudents.map((student, index) => (
+                      <tr
+                        key={student.id}
+                        onClick={() => openStudentProfile(student)}
+                        className="cursor-pointer transition-colors"
+                        style={{ borderBottom: `1px solid ${C.hairline}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      >
+                        <td className="px-3 py-3.5">
+                          <span
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
+                            style={{ background: C.panel2, color: C.muted }}
+                          >
+                            {rangeStart + index}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <StudentIdentity student={student} C={C} />
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span className="text-sm" style={{ color: C.text }}>
+                            {formatDate(student.expectedDate)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span className="text-sm font-medium" style={{ color: C.rose }}>
+                            {formatDate(student.arrivalDate)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                            style={{ background: C.roseSoft, color: C.rose }}
+                          >
+                            <AlertTriangle size={12} />
+                            Unexpected
                           </span>
                         </td>
                       </tr>
@@ -1136,10 +1199,16 @@ export default function AdmissionOverviewPage() {
                   <table className="w-full table-auto">
                     <thead className="sticky top-0 z-20" style={{ background: C.panel, borderBottom: `1px solid ${C.hairline}` }}>
                       <tr>
-                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>#</th>
-                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[260px]" style={{ color: C.muted }}>Student</th>
-                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[130px]" style={{ color: C.muted }}>Progress</th>
-                       
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
+                          #
+                        </th>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[260px]" style={{ color: C.muted }}>
+                          Student
+                        </th>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[130px]" style={{ color: C.muted }}>
+                          Progress
+                        </th>
+
                         {desks.map((col, i) => {
                           const Icon = col.icon;
                           const accent = deskAccentPalette[i % deskAccentPalette.length];
@@ -1150,7 +1219,9 @@ export default function AdmissionOverviewPage() {
                                 <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: accentSoft }}>
                                   <Icon size={16} style={{ color: accent }} />
                                 </div>
-                                <span className="text-xs font-semibold" style={{ color: C.text }}>{col.title}</span>
+                                <span className="text-xs font-semibold" style={{ color: C.text }}>
+                                  {col.title}
+                                </span>
                               </div>
                             </th>
                           );
@@ -1160,11 +1231,12 @@ export default function AdmissionOverviewPage() {
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.brassSoft }}>
                               <Tag size={16} style={{ color: C.brass }} />
                             </div>
-                            <span className="text-xs font-semibold" style={{ color: C.text }}>Remarks</span>
+                            <span className="text-xs font-semibold" style={{ color: C.text }}>
+                              Remarks
+                            </span>
                           </div>
                         </th>
                       </tr>
-
                     </thead>
                     <tbody>
                       {paginatedStudents.map((student, index) => {
@@ -1175,35 +1247,43 @@ export default function AdmissionOverviewPage() {
                             key={student.id}
                             onClick={() => openStudentProfile(student)}
                             className="cursor-pointer transition-colors"
-                            style={{
-                                borderBottom: `1px solid ${C.hairline}`,
-                            }}
-                            onMouseEnter={(e) =>
-                                (e.currentTarget.style.background = C.panel2)
-                            }
-                            onMouseLeave={(e) =>
-                                (e.currentTarget.style.background = "transparent")
-                            }
+                            style={{ borderBottom: `1px solid ${C.hairline}` }}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                           >
                             <td className="px-3 py-3.5">
-                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium" style={{ background: C.panel2, color: C.muted }}>
+                              <span
+                                className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
+                                style={{ background: C.panel2, color: C.muted }}
+                              >
                                 {rangeStart + index}
                               </span>
                             </td>
-                            <td className="px-5 py-3.5"><StudentIdentity student={student} C={C} /></td>
+                            <td className="px-5 py-3.5">
+                              <StudentIdentity student={student} C={C} />
+                            </td>
                             <td className="px-5 py-3.5">
                               <div className="w-[120px]">
-                                <div className="flex justify-between text-xs mb-2" >
-                                  <span className="font-semibold" style={{ color: isComplete ? C.green : C.text }}>{progress}%</span>
-                                  <span style={{ color: C.mutedSoft }}>{student.completedCount}/{student.totalDesks}</span>
+                                <div className="flex justify-between text-xs mb-2">
+                                  <span className="font-semibold" style={{ color: isComplete ? C.green : C.text }}>
+                                    {progress}%
+                                  </span>
+                                  <span style={{ color: C.mutedSoft }}>
+                                    {student.completedCount}/{student.totalDesks}
+                                  </span>
                                 </div>
                                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.hairlineSoft }}>
-                                  <div className="h-1.5 rounded-full transition-all duration-300" style={{ width: `${progress}%`, background: isComplete ? C.green : C.brass }} />
+                                  <div
+                                    className="h-1.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${progress}%`, background: isComplete ? C.green : C.brass }}
+                                  />
                                 </div>
                               </div>
                             </td>
                             {desks.map((col) => (
-                              <td key={col.key} className="px-3.5 py-3.5"><Cell value={student.cells[col.key]} C={C} /></td>
+                              <td key={col.key} className="px-3.5 py-3.5">
+                                <Cell value={student.cells[col.key]} C={C} />
+                              </td>
                             ))}
                             <td className="px-3.5 py-3.5">
                               <div className="flex justify-center">
@@ -1231,7 +1311,7 @@ export default function AdmissionOverviewPage() {
                                   </span>
                                 )}
                               </div>
-                          </td>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1247,10 +1327,12 @@ export default function AdmissionOverviewPage() {
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 px-5 py-4">
                   <div>
                     <p className="text-sm font-medium" style={{ color: C.text }}>
-                      Showing <span className="font-bold" >{rangeStart}–{rangeEnd}</span> of{" "}
-                      <span className="font-bold" >{visibleStudents.length}</span> students
+                      Showing <span className="font-bold">{rangeStart}–{rangeEnd}</span> of{" "}
+                      <span className="font-bold">{visibleStudents.length}</span> students
                     </p>
-                    <p className="text-xs mt-0.5" style={{ color: C.muted }}>Page {safePage} of {totalPages}</p>
+                    <p className="text-xs mt-0.5" style={{ color: C.muted }}>
+                      Page {safePage} of {totalPages}
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1273,13 +1355,15 @@ export default function AdmissionOverviewPage() {
 
                     {pageNumbers.map((p, i) =>
                       p === "..." ? (
-                        <div key={`e-${i}`} className="px-1 font-semibold" style={{ color: C.muted }}>...</div>
+                        <div key={`e-${i}`} className="px-1 font-semibold" style={{ color: C.muted }}>
+                          ...
+                        </div>
                       ) : (
                         <button
                           key={p}
                           onClick={() => setPage(p)}
                           className="w-9 h-9 rounded-lg font-semibold transition"
-                          style={p === safePage ? { background: C.brass, color: "#fff"} : { color: C.text }}
+                          style={p === safePage ? { background: C.brass, color: "#fff" } : { color: C.text }}
                         >
                           {p}
                         </button>
@@ -1309,34 +1393,33 @@ export default function AdmissionOverviewPage() {
           </>
         )}
       </div>
-    <StudentProfileModal
-      open={!!selectedStudent}
-      student={studentProfile}
-      loading={loadingProfile}
-      onClose={() => {
-        setSelectedStudent(null);
-        setStudentProfile(null);
-      }}
-      onRemarksSaved={(studentId, remarks) => {
-      setStudentProfile((prev) => ({
-        ...prev,
-        remarks,
-      }));
+      <StudentProfileModal
+        open={!!selectedStudent}
+        student={studentProfile}
+        loading={loadingProfile}
+        onClose={() => {
+          setSelectedStudent(null);
+          setStudentProfile(null);
+        }}
+        onRemarksSaved={(studentId, remarks) => {
+          setStudentProfile((prev) => ({
+            ...prev,
+            remarks,
+          }));
 
-      setStudents((prev) =>
-        prev.map((student) =>
-          student.id === studentId
-            ? {
-                ...student,
-                remarks,
-              }
-            : student
-        )
-      );
-    }}
-      C={C}
-    />
+          setStudents((prev) =>
+            prev.map((student) =>
+              student.id === studentId
+                ? {
+                    ...student,
+                    remarks,
+                  }
+                : student
+            )
+          );
+        }}
+        C={C}
+      />
     </div>
-    
   );
 }

@@ -186,7 +186,7 @@ const handleScan = async (qrSlug) => {
 
                 <div>
                   <h3 className="text-xl font-bold mt-1 mb-1">
-                    Hi, Welcome to Plaksha 👋
+                     Welcome to Plaksha
                   </h3>
 
                   <p className="text-teal-100 text-sm font-bold">
