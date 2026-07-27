@@ -88,10 +88,6 @@ function normalizeOverview(payload) {
   const studentsRaw = payload?.students || [];
 
   const desks = desksRaw.map((d) => {
-    // hasChecklist: prefer an explicit flag/count from the backend. Falls
-    // back to `true` (clickable) if the backend doesn't send this yet —
-    // add `has_checklist` (boolean) or `checklist_count` (number) to the
-    // /desks payload to get the "no checklist -> not clickable" behavior.
     const hasChecklist =
       d.has_checklist ??
       d.hasChecklist ??
@@ -207,11 +203,6 @@ function downloadCSV(rows, header, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Runs `worker` over `items` with at most `limit` requests in flight at
-// once. Used to bulk-prefetch every student/desk checklist without
-// firing hundreds of requests simultaneously. A failure on one item is
-// swallowed — that one pair just stays uncached rather than aborting
-// the whole batch.
 async function mapWithConcurrency(items, limit, worker) {
   let cursor = 0;
   async function run() {
@@ -227,12 +218,6 @@ async function mapWithConcurrency(items, limit, worker) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
 }
 
-/* ============================================================
-   DESK CHECKLIST MODAL — editable checklist for a single
-   student + desk. Header shows "checked/total" while items are
-   still outstanding, and swaps to the desk's completion time
-   once every item is checked.
-   ============================================================ */
 
 function DeskChecklistModal({ open, onClose, loading, desk, student, items, completionTime, onToggleItem, C }) {
   if (!open) return null;
@@ -333,52 +318,64 @@ function DeskChecklistModal({ open, onClose, loading, desk, student, items, comp
   );
 }
 
-// Table-cell summary of a single desk for a single student.
-//  - time set, counts known  -> completed, show "9:45 | 10/10" (green)
-//  - time set, no counts     -> completed, show just the time (green)
-//  - no time, checkedCount>0 -> in progress, show "8/10" instead of
-//                                "Pending" (brass)
-//  - neither                 -> nothing started yet, show "Pending" (dashed)
-// `clickable` is false when the desk has no checklist configured at all,
-// or when this specific student/desk pair reports totalCount === 0 — in
-// both cases the cell renders as plain text, not a button.
 function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) {
   const hasCounts = typeof totalCount === "number" && totalCount > 0;
   const hasVerified = hasCounts && (checkedCount ?? 0) > 0;
 
-  let content;
-  if (time) {
-    content = (
+ let content;
+
+const isCompleted =
+  hasCounts &&
+  totalCount > 0 &&
+  checkedCount === totalCount;
+
+if (time) {
+  content = (
+    <span
+      className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
+      style={{ background: C.greenSoft, borderColor: C.greenSoft }}
+    >
       <span
-        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
-        style={{ background: C.greenSoft, borderColor: C.greenSoft }}
+        className="text-xs font-medium whitespace-nowrap"
+        style={{ color: C.green }}
       >
-        <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.green }}>
-          {hasCounts ? `${time} | ${checkedCount ?? 0}/${totalCount}` : time}
-        </span>
+        {isCompleted
+          ? `${time} | Completed`
+          : hasCounts
+          ? `${time} | ${checkedCount}/${totalCount}`
+          : time}
       </span>
-    );
-  } else if (hasVerified) {
-    content = (
+    </span>
+  );
+} else if (hasVerified) {
+  content = (
+    <span
+      className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
+      style={{
+        background: isCompleted ? C.greenSoft : C.brassSoft,
+        borderColor: isCompleted ? C.greenSoft : C.brassSoft,
+      }}
+    >
       <span
-        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
-        style={{ background: C.brassSoft, borderColor: C.brassSoft }}
+        className="text-xs font-medium whitespace-nowrap"
+        style={{
+          color: isCompleted ? C.green : C.brass,
+        }}
       >
-        <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.brass }}>
-          {checkedCount}/{totalCount}
-        </span>
+        {isCompleted ? "Verified" : `${checkedCount}/${totalCount}`}
       </span>
-    );
-  } else {
-    content = (
-      <span
-        className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
-        style={{ color: C.mutedSoft, borderColor: C.hairline }}
-      >
-        Pending
-      </span>
-    );
-  }
+    </span>
+  );
+} else {
+  content = (
+    <span
+      className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
+      style={{ color: C.mutedSoft, borderColor: C.hairline }}
+    >
+      Pending
+    </span>
+  );
+}
 
   if (!clickable) {
     return <div className="flex justify-center">{content}</div>;
@@ -618,6 +615,138 @@ function Info({ label, value }) {
   );
 }
 
+function DeskChecklistFilterControl({ desk, filter, onChange, C }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(filter?.type === "eq" ? String(filter.value) : "");
+  const wrapRef = useRef(null);
+  const Icon = desk.icon;
+
+  useEffect(() => {
+    setInputValue(filter?.type === "eq" ? String(filter.value) : "");
+  }, [filter]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const label =
+    filter?.type === "pending"
+      ? "Pending"
+      : filter?.type === "verified"
+      ? "Verified"
+      : filter?.type === "eq"
+      ? `= ${filter.value}`
+      : null;
+
+  const applyEqual = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed === "") return;
+    const num = Number(trimmed);
+    if (Number.isNaN(num) || num < 0) return;
+    onChange({ type: "eq", value: num });
+    setOpen(false);
+  };
+
+  const selectOption = (type) => {
+    // clicking the already-active option clears it
+    onChange(filter?.type === type ? null : { type });
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+        style={
+          filter
+            ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+            : { background: C.panel2, borderColor: C.hairline, color: C.text }
+        }
+      >
+        <Icon size={14} />
+        {desk.title}
+        {label && (
+          <span
+            className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
+            style={{ background: "rgba(255,255,255,0.25)" }}
+          >
+            {label}
+          </span>
+        )}
+        <ChevronDown size={12} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 150ms ease" }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-30 mt-2 w-56 rounded-xl p-2"
+          style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}
+        >
+          <button
+            onClick={() => selectOption("pending")}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between"
+            style={{ color: C.text, background: filter?.type === "pending" ? C.panel2 : "transparent" }}
+          >
+            Pending
+            {filter?.type === "pending" && <Check size={14} style={{ color: C.brass }} />}
+          </button>
+
+          <button
+            onClick={() => selectOption("verified")}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between"
+            style={{ color: C.text, background: filter?.type === "verified" ? C.panel2 : "transparent" }}
+          >
+            Verified
+            {filter?.type === "verified" && <Check size={14} style={{ color: C.brass }} />}
+          </button>
+
+          <div className="px-3 py-2 mt-1" style={{ borderTop: `1px solid ${C.hairline}` }}>
+            <p className="text-xs font-medium mb-1.5 mt-1" style={{ color: C.muted }}>
+              Equal to
+            </p>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && applyEqual()}
+                placeholder="e.g. 3"
+                className="w-full px-2 py-1.5 rounded-lg outline-none text-sm"
+                style={{ background: C.panel2, border: `1px solid ${C.hairline}`, color: C.text }}
+              />
+              <button
+                onClick={applyEqual}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
+                style={{ background: C.brass }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {filter && (
+            <button
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs mt-1 font-medium"
+              style={{ color: C.rose }}
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ============================================================
    PAGE
    ============================================================ */
@@ -641,32 +770,47 @@ export default function AdmissionOverviewPage() {
   const filterBarRef = useRef(null);
   const [activeFilters, setActiveFilters] = useState([]);
 
+  const [deskChecklistFilters, setDeskChecklistFilters] = useState({});
+  const [filtersApplying, setFiltersApplying] = useState(false);
+  const applyingTimeoutRef = useRef(null);
+
+  const setDeskChecklistFilter = (deskKey, filter) => {
+    setDeskChecklistFilters((prev) => {
+      const next = { ...prev };
+      if (!filter) {
+        delete next[deskKey];
+      } else {
+        next[deskKey] = filter;
+      }
+      return next;
+    });
+
+    setFiltersApplying(true);
+    if (applyingTimeoutRef.current) window.clearTimeout(applyingTimeoutRef.current);
+    applyingTimeoutRef.current = window.setTimeout(() => setFiltersApplying(false), 450);
+  };
+
+  const removeDeskChecklistFilter = (deskKey) => setDeskChecklistFilter(deskKey, null);
+
+  useEffect(() => {
+    return () => {
+      if (applyingTimeoutRef.current) window.clearTimeout(applyingTimeoutRef.current);
+    };
+  }, []);
+
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentProfile, setStudentProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
-
-  // Authoritative "not expected" count, sourced from the same dashboard
-  // endpoint the Dashboard page uses: getOverallDashboardData when viewing
-  // "All dates" (selectedDate === "all"), or getDaywiseDashboardData when
-  // a specific date is selected. This guarantees both pages always agree.
   const [notExpectedCount, setNotExpectedCount] = useState(null);
 
-  // ---- desk checklist modal state ----
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistItems, setChecklistItems] = useState([]);
   const [checklistDesk, setChecklistDesk] = useState(null);
   const [checklistStudent, setChecklistStudent] = useState(null);
 
-  // ---- checklist cache ---------------------------------------------
-  // Every (student, desk) checklist is fetched once, in bulk, right
-  // after the overview loads — not lazily when a cell is clicked. That's
-  // what makes "8/10"-style counts visible on every row immediately,
-  // instead of only after opening that cell's modal. Keyed by
-  // "<studentId>:<deskId>". A ref mirrors the state so reads are always
-  // synchronous and never see a stale value while updates are in flight.
   const [, setChecklistCacheState] = useState({});
   const checklistCacheRef = useRef({});
   const commitChecklistCache = (next) => {
@@ -675,11 +819,7 @@ export default function AdmissionOverviewPage() {
   };
   const cacheKey = (studentId, deskId) => `${studentId}:${deskId}`;
 
-  // Overlays every cached checklist's checked/total counts onto a
-  // students list. Used both right after the bulk prefetch, and after
-  // any background overview refresh, so a fresh fetch from /overview
-  // (which likely doesn't know per-item counts at all) never wipes out
-  // counts we've already learned from the checklist endpoint.
+
   const mergeCachedCounts = (studentsList, desksList) => {
     const cache = checklistCacheRef.current;
     if (Object.keys(cache).length === 0) return studentsList;
@@ -709,9 +849,6 @@ export default function AdmissionOverviewPage() {
     });
   };
 
-  // Pushes the live checked/total counts for one student+desk straight
-  // into the `students` table state — used for instant optimistic
-  // updates while a single checkbox is being toggled.
   const syncCellProgress = (student, desk, items) => {
     if (!student || !desk) return;
     const total = items.length;
@@ -734,18 +871,6 @@ export default function AdmissionOverviewPage() {
   };
 
   const CHECKLIST_PREFETCH_CONCURRENCY = 6;
-
-  // Fetches every (student, desk-with-a-checklist) pair once, bounded to
-  // a handful of requests in flight at a time, right after the overview
-  // loads. After this settles every cell already knows its real
-  // checked/total counts — no per-row click required.
-  //
-  // NOTE: this is N(students) x M(desks with checklists) requests. Fine
-  // for a few hundred rows; for a much larger roster the real fix is
-  // having /overview return `checked_count`/`total_count` per desk
-  // directly (see normalizeOverview above) so this prefetch becomes
-  // unnecessary entirely. Until then, this is the batched, "fetch it all
-  // up front" approach.
   const prefetchAllChecklists = async (studentsList, desksList) => {
     const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
     if (checklistDesks.length === 0 || studentsList.length === 0) return;
@@ -768,7 +893,7 @@ export default function AdmissionOverviewPage() {
   };
 
   const openDeskChecklist = async (student, desk, e) => {
-    e.stopPropagation(); // don't trigger the row's profile-open click
+    e.stopPropagation(); 
     setChecklistStudent(student);
     setChecklistDesk(desk);
     setChecklistOpen(true);
@@ -913,7 +1038,7 @@ export default function AdmissionOverviewPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedDate, statusTab, activeFilters]);
+  }, [search, selectedDate, statusTab, activeFilters, deskChecklistFilters]);
 
   // Fetch the authoritative "not expected" count from the same endpoints
   // the Dashboard page uses. "All dates" -> overall mode (global count,
@@ -987,7 +1112,22 @@ export default function AdmissionOverviewPage() {
   const clearAllFilters = () => {
     setActiveFilters([]);
     setSelectedDate("all");
+    setDeskChecklistFilters({});
   };
+
+  // Does a student satisfy every active per-desk checklist-status filter?
+  // "pending" -> 0 items checked, "verified" -> checked === total (and
+  // total > 0), "eq" -> checked === the exact number typed in.
+  const matchesDeskChecklistFilters = (s) =>
+    Object.entries(deskChecklistFilters).every(([deskKey, f]) => {
+      const cell = s.cells[deskKey];
+      const checked = cell?.checkedCount ?? 0;
+      const total = cell?.totalCount ?? 0;
+      if (f.type === "pending") return checked === 0;
+      if (f.type === "verified") return total > 0 && checked === total;
+      if (f.type === "eq") return checked === Number(f.value);
+      return true;
+    });
 
   // desks: student must have completed ALL selected desks
   // gender / arrived: student must match ANY selected value in that category
@@ -1003,9 +1143,9 @@ export default function AdmissionOverviewPage() {
         );
         // console.log(s.arrivedOk);
         // console.log(s);
-        return deskOk && genderOk && arrivedOk;
+        return deskOk && genderOk && arrivedOk && matchesDeskChecklistFilters(s);
       }),
-    [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived]
+    [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived, deskChecklistFilters]
   );
 
   // Students whose arrival date doesn't match their expected date.
@@ -1028,16 +1168,20 @@ export default function AdmissionOverviewPage() {
       const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]?.time));
       const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
       const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
-      return searchOk && deskOk && genderOk && arrivedOk;
+      return searchOk && deskOk && genderOk && arrivedOk && matchesDeskChecklistFilters(s);
     });
-  }, [students, selectedDate, search, selectedDeskKeys, selectedGenders, selectedArrived]);
+  }, [students, selectedDate, search, selectedDeskKeys, selectedGenders, selectedArrived, deskChecklistFilters]);
 
   // Are any search/desk/gender/arrived filters currently narrowing the
   // list? Only in this "nothing extra applied" state does the backend's
   // global notExpectedCount describe the same population as
   // unexpectedArrivals — so it's only safe to show it then.
   const hasExtraFilters =
-    Boolean(search.trim()) || selectedDeskKeys.length > 0 || selectedGenders.length > 0 || selectedArrived.length > 0;
+    Boolean(search.trim()) ||
+    selectedDeskKeys.length > 0 ||
+    selectedGenders.length > 0 ||
+    selectedArrived.length > 0 ||
+    Object.keys(deskChecklistFilters).length > 0;
 
   const counts = useMemo(() => {
     const c = {
@@ -1093,10 +1237,6 @@ export default function AdmissionOverviewPage() {
     const isExpected = statusTab === "expected";
     const isUnexpected = statusTab === "unexpected";
     let header, rows;
-
-    // Renders each desk's cell as CSV-friendly text, matching what's
-    // shown in the table: "9:45 | 10/10" once done, "8/10" while partly
-    // verified, otherwise "Pending".
     const cellText = (s, d) => {
       const cell = s.cells[d.key];
       if (!cell) return "Pending";
@@ -1131,6 +1271,17 @@ export default function AdmissionOverviewPage() {
     downloadCSV(rows, header, `students-${statusTab}-${selectedDate}.csv`);
   };
 
+  // TEMPORARY: only the "Document Verification" desk gets the checklist
+  // status filter dropdown for now, since it's the only desk we're
+  // confident actually carries a real, populated desk_checklist behind
+  // it. Once the backend sends a genuine per-desk checklist count for
+  // the rest, swap this back to `desks.filter((d) => d.hasChecklist)`.
+  const CHECKLIST_FILTER_DESK_NAMES = ["document verification"];
+  const checklistFilterDesks = useMemo(
+    () => desks.filter((d) => CHECKLIST_FILTER_DESK_NAMES.includes((d.name || "").trim().toLowerCase())),
+    [desks]
+  );
+
   const filterCategories = [
     { key: "daywise", label: "Daywise", icon: Calendar },
     { key: "desk", label: "Desk", icon: LayoutGrid },
@@ -1138,10 +1289,16 @@ export default function AdmissionOverviewPage() {
     { key: "arrived", label: "Has Remarks", icon: Check },
   ];
 
-  const totalActiveFilterCount = activeFilters.length + (selectedDate !== "all" ? 1 : 0);
+  const totalActiveFilterCount =
+    activeFilters.length + (selectedDate !== "all" ? 1 : 0) + Object.keys(deskChecklistFilters).length;
 
-  // Completion time for the desk currently open in the checklist modal —
-  // reuses the same formatted time already rendered in the table cell.
+  const deskChecklistFilterLabel = (f) => {
+    if (f.type === "pending") return "Pending";
+    if (f.type === "verified") return "Verified";
+    if (f.type === "eq") return `= ${f.value}`;
+    return "";
+  };
+
   const checklistCompletionTime =
     checklistStudent && checklistDesk ? checklistStudent.cells[checklistDesk.key]?.time : null;
 
@@ -1215,11 +1372,12 @@ export default function AdmissionOverviewPage() {
             {/* ---- filters bar (always visible, no toggle) ---- */}
             <div className="rounded-2xl p-4 mb-3" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
               {/* selected filters — shown above the "Filter by" list */}
-              {(activeFilters.length > 0 || selectedDate !== "all") && (
+              {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
                 <div className="mb-4 pb-4" style={{ borderBottom: `1px solid ${C.hairline}` }}>
                   <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
                     Selected Filters
                   </p>
+                  
                   <div className="flex flex-wrap gap-2">
                     {selectedDate !== "all" && (
                       <span
@@ -1252,6 +1410,30 @@ export default function AdmissionOverviewPage() {
                         </button>
                       </span>
                     ))}
+                    {Object.entries(deskChecklistFilters).map(([deskKey, f]) => {
+                      const desk = desks.find((d) => d.key === deskKey);
+                      return (
+                        <span
+                          key={`deskchk-${deskKey}`}
+                          className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                        >
+                          {desk?.title || deskKey}: {deskChecklistFilterLabel(f)}
+                          <button
+                            onClick={() => removeDeskChecklistFilter(deskKey)}
+                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                            style={{ background: C.brass, color: "#fff" }}
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {totalActiveFilterCount > 0 && (
+                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
+                        <X size={12} /> Clear all
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1271,6 +1453,11 @@ export default function AdmissionOverviewPage() {
                           ? selectedDate !== "all"
                             ? 1
                             : 0
+                          : cat.key === "desk"
+                          ? activeFilters.filter((f) => f.category === "desk").length +
+                            Object.keys(deskChecklistFilters).filter((key) =>
+                              checklistFilterDesks.some((d) => d.key === key)
+                            ).length
                           : activeFilters.filter((f) => f.category === cat.key).length;
 
                       return (
@@ -1305,11 +1492,6 @@ export default function AdmissionOverviewPage() {
                       );
                     })}
 
-                    {totalActiveFilterCount > 0 && (
-                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
-                        <X size={12} /> Clear all
-                      </button>
-                    )}
                   </div>
                 </div>
 
@@ -1365,9 +1547,20 @@ export default function AdmissionOverviewPage() {
                     </p>
                   )}
 
-                  {/* DESK OPTIONS */}
                   {activeCategory === "desk" &&
                     desks.map((col) => {
+                      const isChecklistFilterDesk = checklistFilterDesks.some((d) => d.key === col.key);
+                      if (isChecklistFilterDesk) {
+                        return (
+                          <DeskChecklistFilterControl
+                            key={col.key}
+                            desk={col}
+                            filter={deskChecklistFilters[col.key] || null}
+                            onChange={(filter) => setDeskChecklistFilter(col.key, filter)}
+                            C={C}
+                          />
+                        );
+                      }
                       const DeskIcon = col.icon;
                       const active = isFilterSelected("desk", col.key);
                       return (
@@ -1467,7 +1660,23 @@ export default function AdmissionOverviewPage() {
             </div>
 
             {/* ---- table / expected list / unexpected arrivals list ---- */}
-            {visibleStudents.length === 0 ? (
+            <div className="relative">
+              {filtersApplying && (
+                <div
+                  className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl"
+                  style={{ background: `${C.panel}dd`, backdropFilter: "blur(1px)" }}
+                >
+                  <div
+                    className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium"
+                    style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.brass, boxShadow: C.cardShadow }}
+                  >
+                    <Loader2 size={18} className="animate-spin" />
+                    Applying filters...
+                  </div>
+                </div>
+              )}
+
+              {visibleStudents.length === 0 ? (
               <div className="rounded-2xl py-16 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
                 <p className="text-sm" style={{ color: C.muted }}>
                   No students match this search, date, filter and status combination.
@@ -1662,6 +1871,7 @@ export default function AdmissionOverviewPage() {
                                   <span className="font-semibold" style={{ color: isComplete ? C.green : C.text }}>
                                     {progress}%
                                   </span>
+                                  
                                   <span style={{ color: C.mutedSoft }}>
                                     {student.completedCount}/{student.totalDesks}
                                   </span>
@@ -1676,10 +1886,6 @@ export default function AdmissionOverviewPage() {
                             </td>
                             {desks.map((col) => {
                               const cell = student.cells[col.key] || {};
-                              // Not clickable when the desk itself has no
-                              // checklist configured, OR when this specific
-                              // student/desk pair explicitly reports zero
-                              // checklist items (totalCount === 0).
                               const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
                               return (
                                 <td key={col.key} className="px-3.5 py-3.5">
@@ -1729,6 +1935,7 @@ export default function AdmissionOverviewPage() {
                 </div>
               </div>
             )}
+            </div>
 
             {/* ---- pagination (functional) ---- */}
             {visibleStudents.length > 0 && (

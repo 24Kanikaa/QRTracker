@@ -684,8 +684,7 @@ async getStudents(status = "ALL") {
       break;
 
     case "IN_PROGRESS":
-      // Arrived (arrival_date set) but hasn't finished every desk yet —
-      // matches the dashboard's `inProgress = arrived - completed`.
+    
       result = result.filter(
         s =>
           Boolean(s.arrivalDateKey) &&
@@ -694,8 +693,7 @@ async getStudents(status = "ALL") {
       break;
 
     case "EXPECTED":
-      // Hasn't arrived at all — matches the dashboard's
-      // `arrival_date IS NULL` / `expected - checkedIn`.
+    
       result = result.filter(
         s => !s.arrivalDateKey
       );
