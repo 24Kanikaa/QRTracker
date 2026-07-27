@@ -251,6 +251,87 @@ module.exports = async (db) => {
         ON DELETE SET NULL
 );`);
 
+ await db.query(`
+    CREATE TABLE IF NOT EXISTS  desk_checklist_items (
+
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    desk_id INT NOT NULL,
+
+    description VARCHAR(255) NOT NULL,
+
+    required BOOLEAN NOT NULL DEFAULT TRUE,
+
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+
+    display_order INT DEFAULT 0,
+
+    created_by INT NULL,
+
+    updated_by INT NULL,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_checklist_desk
+        FOREIGN KEY (desk_id)
+        REFERENCES desks(id)
+        ON DELETE CASCADE,
+
+    CONSTRAINT fk_checklist_created_by
+        FOREIGN KEY (created_by)
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_checklist_updated_by
+        FOREIGN KEY (updated_by)
+        REFERENCES users(id)
+        ON DELETE SET NULL
+
+);`)
+
+
+await db.query(`
+    CREATE TABLE  IF NOT EXISTS desk_checklist_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    student_id INT NOT NULL,
+
+    checklist_item_id INT NOT NULL,
+
+    checked BOOLEAN NOT NULL DEFAULT TRUE,
+
+    remarks TEXT NULL,
+
+    checked_by INT NULL,
+
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_student_checklist (
+        student_id,
+        checklist_item_id
+    ),
+
+    FOREIGN KEY (student_id)
+        REFERENCES students(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (checklist_item_id)
+        REFERENCES desk_checklist_items(id)
+        ON DELETE CASCADE,
+
+    FOREIGN KEY (checked_by)
+        REFERENCES users(id)
+        ON DELETE SET NULL
+);`)
+
 
     console.log("✅ Tables verified");
 };

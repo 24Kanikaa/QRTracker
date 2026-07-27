@@ -30,8 +30,13 @@ import {
   User as UserIcon,
   Tag,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
-import { getStudentOverview } from "../../services/deskService";
+import {
+  getStudentOverview,
+  getStudentChecklistLogs,
+  updateChecklistItem, // TODO: point this at your real update route (see note below)
+} from "../../services/deskService";
 import { getStudentInfo, updateStudentRemarks } from "../../services/settingServices";
 import { getDashboardData } from "../../services/Dashboardservice";
 import Swal from "sweetalert2";
@@ -82,12 +87,25 @@ function normalizeOverview(payload) {
   const desksRaw = payload?.desks || [];
   const studentsRaw = payload?.students || [];
 
-  const desks = desksRaw.map((d) => ({
-    key: slugifyDeskName(d.desk_name),
-    name: d.desk_name,
-    title: d.desk_name,
-    icon: getDeskIcon(d.desk_name),
-  }));
+  const desks = desksRaw.map((d) => {
+    // hasChecklist: prefer an explicit flag/count from the backend. Falls
+    // back to `true` (clickable) if the backend doesn't send this yet —
+    // add `has_checklist` (boolean) or `checklist_count` (number) to the
+    // /desks payload to get the "no checklist -> not clickable" behavior.
+    const hasChecklist =
+      d.has_checklist ??
+      d.hasChecklist ??
+      (typeof d.checklist_count === "number" ? d.checklist_count > 0 : true);
+
+    return {
+      key: slugifyDeskName(d.desk_name),
+      name: d.desk_name,
+      id: d.id ?? d.desk_id,
+      title: d.desk_name,
+      icon: getDeskIcon(d.desk_name),
+      hasChecklist,
+    };
+  });
 
   const students = studentsRaw.map((s) => {
     const totalDesks = s.totalDesks ?? desks.length;
@@ -97,10 +115,22 @@ function normalizeOverview(payload) {
     const status = computeStatus(completedCount, totalDesks, arrivalDate);
     const progress = totalDesks > 0 ? Math.round((completedCount / totalDesks) * 100) : 0;
 
+    // Each cell now carries the completion time (when done) AND, if the
+    // backend sends it, the running checklist progress for that desk
+    // (checked_count / total_count). This lets the table show "5/8"
+    // while a desk is partway through, and the completion time once
+    // every item on that desk is checked. Add `checked_count` /
+    // `total_count` (or camelCase equivalents) to each desk entry in the
+    // /overview payload to light this up — until then it gracefully
+    // falls back to the old "Pending" label.
     const cells = {};
     desks.forEach((col) => {
       const entry = s.desks?.[col.name];
-      cells[col.key] =
+
+      const checkedCount = entry?.checkedCount ?? entry?.checked_count ?? null;
+      const totalCount = entry?.totalCount ?? entry?.total_count ?? null;
+
+      const time =
         entry && entry.status === "completed" && entry.time
           ? new Date(entry.time).toLocaleTimeString("en-US", {
               hour: "numeric",
@@ -108,6 +138,8 @@ function normalizeOverview(payload) {
               hour12: true,
             })
           : null;
+
+      cells[col.key] = { time, checkedCount, totalCount };
     });
 
     return {
@@ -175,29 +207,188 @@ function downloadCSV(rows, header, filename) {
   URL.revokeObjectURL(url);
 }
 
-function Cell({ value, C }) {
-  if (!value) {
-    return (
-      <div className="flex justify-center">
-        <span
-          className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
-          style={{ color: C.mutedSoft, borderColor: C.hairline }}
-        >
-          Pending
-        </span>
-      </div>
-    );
+// Runs `worker` over `items` with at most `limit` requests in flight at
+// once. Used to bulk-prefetch every student/desk checklist without
+// firing hundreds of requests simultaneously. A failure on one item is
+// swallowed — that one pair just stays uncached rather than aborting
+// the whole batch.
+async function mapWithConcurrency(items, limit, worker) {
+  let cursor = 0;
+  async function run() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      try {
+        await worker(items[idx], idx);
+      } catch (err) {
+        // leave this pair uncached; its cell just falls back to "Pending"
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+}
+
+/* ============================================================
+   DESK CHECKLIST MODAL — editable checklist for a single
+   student + desk. Header shows "checked/total" while items are
+   still outstanding, and swaps to the desk's completion time
+   once every item is checked.
+   ============================================================ */
+
+function DeskChecklistModal({ open, onClose, loading, desk, student, items, completionTime, onToggleItem, C }) {
+  if (!open) return null;
+
+  const total = items.length;
+  const checkedCount = items.filter((i) => i.checked === 1 || i.checked === true).length;
+  const allDone = total > 0 && checkedCount === total;
+
   return (
-    <div className="flex justify-center">
+    <Modal title={`${desk?.title || "Desk"} Checklist — ${student?.name || ""}`} width={640} onClose={onClose} C={C}>
+      {loading ? (
+        <div className="py-16 text-center text-sm" style={{ color: C.muted }}>
+          Loading checklist...
+        </div>
+      ) : items.length === 0 ? (
+        <div className="py-16 text-center text-sm" style={{ color: C.muted }}>
+          No checklist items configured for this desk.
+        </div>
+      ) : (
+        <>
+          {/* Progress / completion header */}
+          <div
+            className="rounded-xl px-4 py-3 mb-4 flex items-center justify-between"
+            style={{
+              background: allDone ? C.greenSoft : C.panel2,
+              border: `1px solid ${allDone ? C.green : C.hairline}`,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              {allDone ? (
+                <CheckCircle2 size={16} style={{ color: C.green }} />
+              ) : (
+                <Clock3 size={16} style={{ color: C.brass }} />
+              )}
+              <span className="text-sm font-semibold" style={{ color: allDone ? C.green : C.text }}>
+                {allDone
+                  ? completionTime
+                    ? `Completed at ${completionTime}`
+                    : "All items verified"
+                  : `${checkedCount}/${total} items verified`}
+              </span>
+            </div>
+            {!allDone && (
+              <span className="text-xs font-medium" style={{ color: C.muted }}>
+                {total - checkedCount} remaining
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {items.map((item) => {
+              const isChecked = item.checked === 1 || item.checked === true;
+              const isSaving = Boolean(item.saving);
+              return (
+                <label
+                  key={item.checklist_item_id}
+                  className="rounded-xl p-4 flex items-start gap-3 cursor-pointer"
+                  style={{ background: C.panel2, border: `1px solid ${C.hairline}` }}
+                >
+                  <span className="shrink-0 mt-0.5">
+                    {isSaving ? (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ background: C.panel, border: `1px solid ${C.hairline}` }}
+                      >
+                        <Loader2 size={13} className="animate-spin" style={{ color: C.muted }} />
+                      </div>
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => onToggleItem(item)}
+                        className="w-5 h-5 rounded cursor-pointer"
+                        style={{ accentColor: C.green }}
+                      />
+                    )}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium" style={{ color: C.text }}>
+                      {item.description}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: isChecked ? C.green : C.mutedSoft }}>
+                      {isChecked ? "Verified" : "Pending"}
+                    </p>
+                    {item.remarks ? (
+                      <p className="text-xs mt-1" style={{ color: C.muted }}>
+                        {item.remarks}
+                      </p>
+                    ) : null}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// Table-cell summary of a single desk for a single student.
+//  - time set, counts known  -> completed, show "9:45 | 10/10" (green)
+//  - time set, no counts     -> completed, show just the time (green)
+//  - no time, checkedCount>0 -> in progress, show "8/10" instead of
+//                                "Pending" (brass)
+//  - neither                 -> nothing started yet, show "Pending" (dashed)
+// `clickable` is false when the desk has no checklist configured at all,
+// or when this specific student/desk pair reports totalCount === 0 — in
+// both cases the cell renders as plain text, not a button.
+function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) {
+  const hasCounts = typeof totalCount === "number" && totalCount > 0;
+  const hasVerified = hasCounts && (checkedCount ?? 0) > 0;
+
+  let content;
+  if (time) {
+    content = (
       <span
         className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
         style={{ background: C.greenSoft, borderColor: C.greenSoft }}
       >
         <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.green }}>
-          {value}
+          {hasCounts ? `${time} | ${checkedCount ?? 0}/${totalCount}` : time}
         </span>
       </span>
+    );
+  } else if (hasVerified) {
+    content = (
+      <span
+        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
+        style={{ background: C.brassSoft, borderColor: C.brassSoft }}
+      >
+        <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.brass }}>
+          {checkedCount}/{totalCount}
+        </span>
+      </span>
+    );
+  } else {
+    content = (
+      <span
+        className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
+        style={{ color: C.mutedSoft, borderColor: C.hairline }}
+      >
+        Pending
+      </span>
+    );
+  }
+
+  if (!clickable) {
+    return <div className="flex justify-center">{content}</div>;
+  }
+
+  return (
+    <div className="flex justify-center">
+      <button onClick={onClick} className="transition-transform hover:scale-105" title="View checklist details">
+        {content}
+      </button>
     </div>
   );
 }
@@ -462,6 +653,211 @@ export default function AdmissionOverviewPage() {
   // a specific date is selected. This guarantees both pages always agree.
   const [notExpectedCount, setNotExpectedCount] = useState(null);
 
+  // ---- desk checklist modal state ----
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [checklistDesk, setChecklistDesk] = useState(null);
+  const [checklistStudent, setChecklistStudent] = useState(null);
+
+  // ---- checklist cache ---------------------------------------------
+  // Every (student, desk) checklist is fetched once, in bulk, right
+  // after the overview loads — not lazily when a cell is clicked. That's
+  // what makes "8/10"-style counts visible on every row immediately,
+  // instead of only after opening that cell's modal. Keyed by
+  // "<studentId>:<deskId>". A ref mirrors the state so reads are always
+  // synchronous and never see a stale value while updates are in flight.
+  const [, setChecklistCacheState] = useState({});
+  const checklistCacheRef = useRef({});
+  const commitChecklistCache = (next) => {
+    checklistCacheRef.current = next;
+    setChecklistCacheState(next);
+  };
+  const cacheKey = (studentId, deskId) => `${studentId}:${deskId}`;
+
+  // Overlays every cached checklist's checked/total counts onto a
+  // students list. Used both right after the bulk prefetch, and after
+  // any background overview refresh, so a fresh fetch from /overview
+  // (which likely doesn't know per-item counts at all) never wipes out
+  // counts we've already learned from the checklist endpoint.
+  const mergeCachedCounts = (studentsList, desksList) => {
+    const cache = checklistCacheRef.current;
+    if (Object.keys(cache).length === 0) return studentsList;
+    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
+
+    return studentsList.map((s) => {
+      let nextCells = s.cells;
+      let touched = false;
+      checklistDesks.forEach((d) => {
+        const items = cache[cacheKey(s.id, d.id)];
+        if (!items) return;
+        const total = items.length;
+        const checked = items.filter((i) => i.checked === 1 || i.checked === true).length;
+        const prevCell = nextCells[d.key] || {};
+        nextCells = { ...nextCells, [d.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
+        touched = true;
+      });
+      if (!touched) return s;
+      const completedCount = Object.values(nextCells).filter((c) => c.time).length;
+      return {
+        ...s,
+        cells: nextCells,
+        completedCount,
+        progress: s.totalDesks > 0 ? Math.round((completedCount / s.totalDesks) * 100) : s.progress,
+        status: computeStatus(completedCount, s.totalDesks, s.arrivalDate),
+      };
+    });
+  };
+
+  // Pushes the live checked/total counts for one student+desk straight
+  // into the `students` table state — used for instant optimistic
+  // updates while a single checkbox is being toggled.
+  const syncCellProgress = (student, desk, items) => {
+    if (!student || !desk) return;
+    const total = items.length;
+    const checked = items.filter((i) => i.checked === 1 || i.checked === true).length;
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id !== student.id) return s;
+        const prevCell = s.cells[desk.key] || {};
+        const nextCells = { ...s.cells, [desk.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
+        const completedCount = Object.values(nextCells).filter((c) => c.time).length;
+        return {
+          ...s,
+          cells: nextCells,
+          completedCount,
+          progress: s.totalDesks > 0 ? Math.round((completedCount / s.totalDesks) * 100) : s.progress,
+          status: computeStatus(completedCount, s.totalDesks, s.arrivalDate),
+        };
+      })
+    );
+  };
+
+  const CHECKLIST_PREFETCH_CONCURRENCY = 6;
+
+  // Fetches every (student, desk-with-a-checklist) pair once, bounded to
+  // a handful of requests in flight at a time, right after the overview
+  // loads. After this settles every cell already knows its real
+  // checked/total counts — no per-row click required.
+  //
+  // NOTE: this is N(students) x M(desks with checklists) requests. Fine
+  // for a few hundred rows; for a much larger roster the real fix is
+  // having /overview return `checked_count`/`total_count` per desk
+  // directly (see normalizeOverview above) so this prefetch becomes
+  // unnecessary entirely. Until then, this is the batched, "fetch it all
+  // up front" approach.
+  const prefetchAllChecklists = async (studentsList, desksList) => {
+    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
+    if (checklistDesks.length === 0 || studentsList.length === 0) return;
+
+    const pairs = [];
+    studentsList.forEach((s) => {
+      checklistDesks.forEach((d) => pairs.push({ student: s, desk: d }));
+    });
+
+    const fetched = { ...checklistCacheRef.current };
+
+    await mapWithConcurrency(pairs, CHECKLIST_PREFETCH_CONCURRENCY, async ({ student, desk }) => {
+      const { data } = await getStudentChecklistLogs(student.id, desk.id);
+      const rows = data?.data || data || [];
+      fetched[cacheKey(student.id, desk.id)] = rows;
+    });
+
+    commitChecklistCache(fetched);
+    setStudents((prev) => mergeCachedCounts(prev, desksList));
+  };
+
+  const openDeskChecklist = async (student, desk, e) => {
+    e.stopPropagation(); // don't trigger the row's profile-open click
+    setChecklistStudent(student);
+    setChecklistDesk(desk);
+    setChecklistOpen(true);
+
+    const key = cacheKey(student.id, desk.id);
+    const cached = checklistCacheRef.current[key];
+    if (cached) {
+      // Already fetched during the bulk prefetch (or a prior open) —
+      // opens instantly, no spinner, no extra request.
+      setChecklistItems(cached);
+      setChecklistLoading(false);
+      return;
+    }
+
+    setChecklistLoading(true);
+    try {
+      const { data } = await getStudentChecklistLogs(student.id, desk.id);
+      const rows = data?.data || data || [];
+      setChecklistItems(rows);
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: rows });
+      syncCellProgress(student, desk, rows);
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to load checklist",
+        text: err.response?.data?.message || "Something went wrong.",
+      });
+    } finally {
+      setChecklistLoading(false);
+    }
+  };
+
+  const closeDeskChecklist = () => {
+    setChecklistOpen(false);
+    setChecklistItems([]);
+    setChecklistDesk(null);
+    setChecklistStudent(null);
+  };
+
+  const handleToggleChecklistItem = async (item) => {
+    if (!checklistStudent || !checklistDesk) return;
+    const key = cacheKey(checklistStudent.id, checklistDesk.id);
+    const previousChecked = item.checked;
+    const nextChecked = previousChecked === 1 || previousChecked === true ? 0 : 1;
+
+    // optimistic update, mark this row as saving, and reflect the new
+    // count in the table and the cache immediately.
+    const optimisticItems = checklistItems.map((i) =>
+      i.checklist_item_id === item.checklist_item_id ? { ...i, checked: nextChecked, saving: true } : i
+    );
+    setChecklistItems(optimisticItems);
+    commitChecklistCache({ ...checklistCacheRef.current, [key]: optimisticItems });
+    syncCellProgress(checklistStudent, checklistDesk, optimisticItems);
+
+    try {
+      // TODO: adjust to match your real backend route/method for
+      // updating a single checklist item's checked state.
+      await updateChecklistItem(checklistStudent.id, checklistDesk.id, item.checklist_item_id, nextChecked);
+
+      const settledItems = optimisticItems.map((i) =>
+        i.checklist_item_id === item.checklist_item_id ? { ...i, saving: false } : i
+      );
+      setChecklistItems(settledItems);
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: settledItems });
+      syncCellProgress(checklistStudent, checklistDesk, settledItems);
+
+      // Silent background refresh, purely to pick up the completion
+      // time/status once every item on this desk is checked — we merge
+      // the cache back in afterwards, so this never reverts the counts
+      // we already know.
+      loadStudents({ silent: true });
+    } catch (err) {
+      console.error(err);
+      // revert on failure
+      const revertedItems = optimisticItems.map((i) =>
+        i.checklist_item_id === item.checklist_item_id ? { ...i, checked: previousChecked, saving: false } : i
+      );
+      setChecklistItems(revertedItems);
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: revertedItems });
+      syncCellProgress(checklistStudent, checklistDesk, revertedItems);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to update item",
+        text: err.response?.data?.message || "Something went wrong.",
+      });
+    }
+  };
+
   const openStudentProfile = async (student) => {
     try {
       setSelectedStudent(student);
@@ -485,24 +881,34 @@ export default function AdmissionOverviewPage() {
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
 
-  const loadStudents = async () => {
+  const loadStudents = async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const res = await getStudentOverview();
       const { desks: normalizedDesks, students: normalizedStudents } = normalizeOverview(res.data.data);
       setDesks(normalizedDesks);
-      setStudents(normalizedStudents);
+      setStudents(mergeCachedCounts(normalizedStudents, normalizedDesks));
+      return { desks: normalizedDesks, students: normalizedStudents };
     } catch (err) {
       console.error(err);
       setError("Couldn't load student data. Please try again.");
+      return null;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadStudents();
+    (async () => {
+      const result = await loadStudents();
+      if (result) {
+        // Kick off the bulk checklist fetch once we know who the
+        // students and desks are — it runs in the background and fills
+        // in counts as it completes, it doesn't block the table.
+        prefetchAllChecklists(result.students, result.desks);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -588,7 +994,7 @@ export default function AdmissionOverviewPage() {
   const deskFiltered = useMemo(
     () =>
       searchFiltered.filter((s) => {
-        const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+        const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]?.time));
         const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
        const arrivedOk =
         selectedArrived.length === 0 ||
@@ -619,7 +1025,7 @@ export default function AdmissionOverviewPage() {
 
     return base.filter((s) => {
       const searchOk = !q || (s.email || "").toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q);
-      const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+      const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]?.time));
       const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
       const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
       return searchOk && deskOk && genderOk && arrivedOk;
@@ -687,6 +1093,23 @@ export default function AdmissionOverviewPage() {
     const isExpected = statusTab === "expected";
     const isUnexpected = statusTab === "unexpected";
     let header, rows;
+
+    // Renders each desk's cell as CSV-friendly text, matching what's
+    // shown in the table: "9:45 | 10/10" once done, "8/10" while partly
+    // verified, otherwise "Pending".
+    const cellText = (s, d) => {
+      const cell = s.cells[d.key];
+      if (!cell) return "Pending";
+      const hasCounts = typeof cell.totalCount === "number" && cell.totalCount > 0;
+      if (cell.time) {
+        return hasCounts ? `${cell.time} | ${cell.checkedCount ?? 0}/${cell.totalCount}` : cell.time;
+      }
+      if (hasCounts && (cell.checkedCount ?? 0) > 0) {
+        return `${cell.checkedCount}/${cell.totalCount}`;
+      }
+      return "Pending";
+    };
+
     if (isExpected) {
       header = ["#", "Name", "Email", "Onboarding Day", "Status"];
       rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), "Awaiting check-in"]);
@@ -701,7 +1124,7 @@ export default function AdmissionOverviewPage() {
         s.email,
         s.progress,
         s.currentDesk || "—",
-        ...desks.map((d) => s.cells[d.key] || "Pending"),
+        ...desks.map((d) => cellText(s, d)),
         s.remarks?.trim() ? "Yes" : "No",
       ]);
     }
@@ -716,6 +1139,11 @@ export default function AdmissionOverviewPage() {
   ];
 
   const totalActiveFilterCount = activeFilters.length + (selectedDate !== "all" ? 1 : 0);
+
+  // Completion time for the desk currently open in the checklist modal —
+  // reuses the same formatted time already rendered in the table cell.
+  const checklistCompletionTime =
+    checklistStudent && checklistDesk ? checklistStudent.cells[checklistDesk.key]?.time : null;
 
   return (
     <div style={{ background: C.bg, minHeight: "100%" }} className="transition-colors duration-300 p-6 md:p-10">
@@ -786,6 +1214,48 @@ export default function AdmissionOverviewPage() {
           <>
             {/* ---- filters bar (always visible, no toggle) ---- */}
             <div className="rounded-2xl p-4 mb-3" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+              {/* selected filters — shown above the "Filter by" list */}
+              {(activeFilters.length > 0 || selectedDate !== "all") && (
+                <div className="mb-4 pb-4" style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
+                    Selected Filters
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDate !== "all" && (
+                      <span
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {formatDate(selectedDate)}
+                        <button
+                          onClick={() => setSelectedDate("all")}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    )}
+                    {activeFilters.map((f) => (
+                      <span
+                        key={`${f.category}-${f.value}`}
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {f.label}
+                        <button
+                          onClick={() => removeFilter(f.category, f.value)}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 {/* category pills */}
                 <div>
@@ -865,43 +1335,6 @@ export default function AdmissionOverviewPage() {
                   </button>
                 </div>
               </div>
-
-              {/* active filter chips */}
-              {(activeFilters.length > 0 || selectedDate !== "all") && (
-                <div className="flex flex-wrap gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
-                  {selectedDate !== "all" && (
-                    <span
-                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                    >
-                      {formatDate(selectedDate)}
-                      <button
-                        onClick={() => setSelectedDate("all")}
-                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: C.brass, color: "#fff" }}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  )}
-                  {activeFilters.map((f) => (
-                    <span
-                      key={`${f.category}-${f.value}`}
-                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                    >
-                      {f.label}
-                      <button
-                        onClick={() => removeFilter(f.category, f.value)}
-                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: C.brass, color: "#fff" }}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
 
               {/* expanded options for the currently active category */}
               {activeCategory && (
@@ -1116,9 +1549,6 @@ export default function AdmissionOverviewPage() {
                       <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
                         Actual arrival
                       </th>
-                      {/* <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
-                        Status
-                      </th> */}
                     </tr>
                   </thead>
                   <tbody>
@@ -1152,15 +1582,6 @@ export default function AdmissionOverviewPage() {
                             {formatDate(student.arrivalDate)}
                           </span>
                         </td>
-                        {/* <td className="px-5 py-3.5 text-right">
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                            style={{ background: C.roseSoft, color: C.rose }}
-                          >
-                            <AlertTriangle size={12} />
-                            Unexpected
-                          </span>
-                        </td> */}
                       </tr>
                     ))}
                   </tbody>
@@ -1253,11 +1674,26 @@ export default function AdmissionOverviewPage() {
                                 </div>
                               </div>
                             </td>
-                            {desks.map((col) => (
-                              <td key={col.key} className="px-3.5 py-3.5">
-                                <Cell value={student.cells[col.key]} C={C} />
-                              </td>
-                            ))}
+                            {desks.map((col) => {
+                              const cell = student.cells[col.key] || {};
+                              // Not clickable when the desk itself has no
+                              // checklist configured, OR when this specific
+                              // student/desk pair explicitly reports zero
+                              // checklist items (totalCount === 0).
+                              const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
+                              return (
+                                <td key={col.key} className="px-3.5 py-3.5">
+                                  <Cell
+                                    time={cell.time}
+                                    checkedCount={cell.checkedCount}
+                                    totalCount={cell.totalCount}
+                                    C={C}
+                                    clickable={isClickable}
+                                    onClick={(e) => openDeskChecklist(student, col, e)}
+                                  />
+                                </td>
+                              );
+                            })}
                             <td className="px-3.5 py-3.5">
                               <div className="flex justify-center">
                                 {student.remarks?.trim() ? (
@@ -1391,6 +1827,17 @@ export default function AdmissionOverviewPage() {
             )
           );
         }}
+        C={C}
+      />
+      <DeskChecklistModal
+        open={checklistOpen}
+        onClose={closeDeskChecklist}
+        loading={checklistLoading}
+        desk={checklistDesk}
+        student={checklistStudent}
+        items={checklistItems}
+        completionTime={checklistCompletionTime}
+        onToggleItem={handleToggleChecklistItem}
         C={C}
       />
     </div>

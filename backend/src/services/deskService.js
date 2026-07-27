@@ -586,13 +586,6 @@ async getStudents(status = "ALL") {
   `);
 
   const totalDesks = desks.length;
-
-  // DATE_FORMAT() is computed by MySQL itself, in the same session/
-  // timezone context as the dashboard's DATE(arrival_date) comparisons —
-  // so expected_date_key / arrival_date_key are guaranteed to agree with
-  // whatever getDaywiseDashboardData() / getOverallDashboardData() count.
-  // is_unexpected_arrival mirrors those same dashboard queries exactly:
-  //   arrival_date IS NOT NULL AND DATE(arrival_date) <> expected_date
   const [students] = await this.db.query(`
     SELECT
         s.id,
@@ -673,10 +666,8 @@ async getStudents(status = "ALL") {
       remarks: student.remarks,
       expectedDate: student.expected_date,
       arrivalDate: student.arrival_date,
-      // Plain "YYYY-MM-DD" keys, truncated by MySQL — safe to compare
-      // directly on the frontend with zero timezone guesswork.
       expectedDateKey: student.expected_date_key,
-      arrivalDateKey: student.arrival_date_key, // null if never arrived
+      arrivalDateKey: student.arrival_date_key, 
       isUnexpectedArrival: Boolean(student.is_unexpected_arrival),
       currentDesk: student.current_desk,
       completedCount,
@@ -722,6 +713,159 @@ async getStudents(status = "ALL") {
     students: result,
   };
 }
+
+async getDeskChecklist(deskId) {
+
+    const [rows] = await this.db.query(
+
+        `
+        SELECT
+
+            id,
+            desk_id,
+            description,
+            required,
+            display_order
+
+        FROM desk_checklist_items
+
+        WHERE desk_id = ?
+          AND active = 1
+
+        ORDER BY display_order ASC
+        `,
+
+        [deskId]
+
+    );
+
+    return rows;
+
 }
+async getStudentChecklistLogs(studentId, deskId) {
+
+    const [rows] = await this.db.query(
+
+        `
+        SELECT
+
+            dci.id AS checklist_item_id,
+
+            dci.desk_id,
+
+            dci.description,
+
+            dci.required,
+
+            dci.display_order,
+
+            dcl.id AS log_id,
+
+            dcl.checked,
+
+            dcl.remarks,
+
+            dcl.checked_at,
+
+            dcl.checked_by
+
+        FROM desk_checklist_items dci
+
+        LEFT JOIN desk_checklist_logs dcl
+            ON dcl.checklist_item_id = dci.id
+            AND dcl.student_id = ?
+
+        WHERE dci.desk_id = ?
+          AND dci.active = 1
+
+        ORDER BY dci.display_order ASC
+        `,
+
+        [
+            studentId,
+            deskId
+        ]
+
+    );
+
+    return rows;
+
+}
+async updateChecklistItem(
+    studentId,
+    deskId,
+    checklistItemId,
+    checked,
+    userId
+) {
+
+    if (checked) {
+
+        const [exists] = await this.db.query(
+
+            `
+            SELECT id
+            FROM desk_checklist_logs
+            WHERE student_id = ?
+              AND checklist_item_id = ?
+            `,
+
+            [
+                studentId,
+                checklistItemId
+            ]
+
+        );
+
+        if (!exists.length) {
+
+            await this.db.query(
+
+                `
+                INSERT INTO desk_checklist_logs
+                (
+                    student_id,
+                    checklist_item_id,
+                    checked,
+                    checked_by,
+                    checked_at
+                )
+                VALUES (?,?,?,?,NOW())
+                `,
+
+                [
+                    studentId,
+                    checklistItemId,
+                    1,
+                    userId
+                ]
+
+            );
+
+        }
+
+    } else {
+
+        await this.db.query(
+
+            `
+            DELETE
+            FROM desk_checklist_logs
+            WHERE student_id = ?
+              AND checklist_item_id = ?
+            `,
+
+            [
+                studentId,
+                checklistItemId
+            ]
+
+        );
+
+    }
+
+}
+}
+
 
 module.exports = DeskService;

@@ -278,3 +278,79 @@ exports.getStudents = async (req, res) => {
     });
   }
 };
+
+exports.getDeskChecklist = async (req, res, next) => {
+
+    try {
+
+ const deskService = new DeskService(getDB());
+
+        const checklist =
+            await deskService.getDeskChecklist(
+                req.params.deskId
+            );
+
+        res.json({
+            success: true,
+            data: checklist,
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};
+
+exports.getStudentChecklistLogs = async (req, res, next) => {
+
+    try {
+
+         const deskService = new DeskService(getDB());
+
+        const logs =
+            await deskService.getStudentChecklistLogs(
+                req.params.studentId,
+                 req.params.deskId
+            );
+
+        res.json({
+            success: true,
+            data: logs,
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};
+
+exports.updateChecklistItem = async (req, res, next) => {
+
+    try {
+
+         const deskService = new DeskService(getDB());
+
+        await deskService.updateChecklistItem(
+            req.params.studentId,
+            req.params.deskId,
+            req.params.checklistItemId,
+            req.body.checked,
+            req.user.id
+        );
+
+        res.json({
+            success: true,
+            message: "Checklist updated."
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};

@@ -13,6 +13,17 @@ router.get(
   "/students",
   auth,
   deskController.getStudents
+  
+);
+router.get(
+    "/student/:studentId/desk/:deskId",
+    auth,
+    deskController.getStudentChecklistLogs
+);
+router.get(
+    "/:deskId/checklist",
+    auth,
+    deskController.getDeskChecklist
 );
 router.get("/:id", auth, deskController.getDeskById);
 
@@ -21,7 +32,11 @@ router.post("/scan", auth, deskController.scanDesk);
 
 router.put("/:id", auth, deskController.updateDesk);
 
-router.delete("/:id", auth, deskController.deleteDesk);
+router.delete("/:id", auth, deskController.deleteDesk);router.patch(
+    "/student/:studentId/desk/:deskId/item/:checklistItemId",
+    auth,
+    deskController.updateChecklistItem
+);
 
 router.patch("/:id/status", auth, deskController.toggleDeskStatus);
 
