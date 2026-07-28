@@ -265,6 +265,7 @@ module.exports = async (db) => {
     active BOOLEAN NOT NULL DEFAULT TRUE,
 
     display_order INT DEFAULT 0,
+    type ENUM('checkbox','text') NOT NULL DEFAULT 'checkbox',
 
     created_by INT NULL,
 
@@ -301,7 +302,7 @@ await db.query(`
 
     checklist_item_id INT NOT NULL,
 
-    checked BOOLEAN NOT NULL DEFAULT TRUE,
+    checked VARCHAR(1000) NULL DEFAULT NULL,
 
     remarks TEXT NULL,
 

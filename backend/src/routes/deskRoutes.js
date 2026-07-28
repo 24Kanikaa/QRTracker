@@ -16,6 +16,11 @@ router.get(
   
 );
 router.get(
+    "/export",
+    auth,
+    deskController.exportReport
+);
+router.get(
     "/student/:studentId/desk/:deskId",
     auth,
     deskController.getStudentChecklistLogs
@@ -32,7 +37,8 @@ router.post("/scan", auth, deskController.scanDesk);
 
 router.put("/:id", auth, deskController.updateDesk);
 
-router.delete("/:id", auth, deskController.deleteDesk);router.patch(
+router.delete("/:id", auth, deskController.deleteDesk);
+router.patch(
     "/student/:studentId/desk/:deskId/item/:checklistItemId",
     auth,
     deskController.updateChecklistItem

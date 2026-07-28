@@ -51,11 +51,23 @@ export const updateChecklistItem = (
     studentId,
     deskId,
     checklistItemId,
-    checked
+    checked,
+    remarks,
+    checkedBy
 ) =>
     api.patch(
         `desks/student/${studentId}/desk/${deskId}/item/${checklistItemId}`,
         {
-            checked,
+        studentId,
+        deskId,
+        checklistItemId,
+        checked,
+        remarks,
+        checkedBy,
         }
     );
+
+export const exportReport = (params) =>
+  api.get("desks/export", {
+    params,
+});

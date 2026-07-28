@@ -333,11 +333,10 @@ exports.updateChecklistItem = async (req, res, next) => {
     try {
 
          const deskService = new DeskService(getDB());
-
         await deskService.updateChecklistItem(
-            req.params.studentId,
-            req.params.deskId,
-            req.params.checklistItemId,
+            req.body.studentId,
+            req.body.deskId,
+            req.body.checklistItemId,
             req.body.checked,
             req.user.id
         );
@@ -353,4 +352,23 @@ exports.updateChecklistItem = async (req, res, next) => {
 
     }
 
+};
+
+exports.exportReport = async (req, res, next) => {
+    try {
+
+       const deskService = new DeskService(getDB());
+
+        const data = await deskService.exportReport(
+            req.query
+        );
+
+        res.json({
+            success: true,
+            data
+        });
+
+    } catch (err) {
+        next(err);
+    }
 };
