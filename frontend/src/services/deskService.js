@@ -44,4 +44,30 @@ export const getJourney = (email) =>
 export const getStudentOverview = () =>
   api.get("desks/students");
 
+export const getStudentChecklistLogs = (studentId,deskId) =>
+  api.get(`/desks/student/${studentId}/desk/${deskId}`);
 
+export const updateChecklistItem = (
+    studentId,
+    deskId,
+    checklistItemId,
+    checked,
+    remarks,
+    checkedBy
+) =>
+    api.patch(
+        `desks/student/${studentId}/desk/${deskId}/item/${checklistItemId}`,
+        {
+        studentId,
+        deskId,
+        checklistItemId,
+        checked,
+        remarks,
+        checkedBy,
+        }
+    );
+
+export const exportReport = (params) =>
+  api.get("desks/export", {
+    params,
+});

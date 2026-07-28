@@ -586,13 +586,6 @@ async getStudents(status = "ALL") {
   `);
 
   const totalDesks = desks.length;
-
-  // DATE_FORMAT() is computed by MySQL itself, in the same session/
-  // timezone context as the dashboard's DATE(arrival_date) comparisons —
-  // so expected_date_key / arrival_date_key are guaranteed to agree with
-  // whatever getDaywiseDashboardData() / getOverallDashboardData() count.
-  // is_unexpected_arrival mirrors those same dashboard queries exactly:
-  //   arrival_date IS NOT NULL AND DATE(arrival_date) <> expected_date
   const [students] = await this.db.query(`
     SELECT
         s.id,
@@ -673,10 +666,8 @@ async getStudents(status = "ALL") {
       remarks: student.remarks,
       expectedDate: student.expected_date,
       arrivalDate: student.arrival_date,
-      // Plain "YYYY-MM-DD" keys, truncated by MySQL — safe to compare
-      // directly on the frontend with zero timezone guesswork.
       expectedDateKey: student.expected_date_key,
-      arrivalDateKey: student.arrival_date_key, // null if never arrived
+      arrivalDateKey: student.arrival_date_key, 
       isUnexpectedArrival: Boolean(student.is_unexpected_arrival),
       currentDesk: student.current_desk,
       completedCount,
@@ -693,8 +684,7 @@ async getStudents(status = "ALL") {
       break;
 
     case "IN_PROGRESS":
-      // Arrived (arrival_date set) but hasn't finished every desk yet —
-      // matches the dashboard's `inProgress = arrived - completed`.
+    
       result = result.filter(
         s =>
           Boolean(s.arrivalDateKey) &&
@@ -703,8 +693,7 @@ async getStudents(status = "ALL") {
       break;
 
     case "EXPECTED":
-      // Hasn't arrived at all — matches the dashboard's
-      // `arrival_date IS NULL` / `expected - checkedIn`.
+    
       result = result.filter(
         s => !s.arrivalDateKey
       );
@@ -722,6 +711,234 @@ async getStudents(status = "ALL") {
     students: result,
   };
 }
+
+async getDeskChecklist(deskId) {
+
+    const [rows] = await this.db.query(
+
+        `
+        SELECT
+
+            id,
+            desk_id,
+            description,
+            required,
+            display_order
+
+        FROM desk_checklist_items
+
+        WHERE desk_id = ?
+          AND active = 1
+
+        ORDER BY display_order ASC
+        `,
+
+        [deskId]
+
+    );
+
+    return rows;
+
 }
+async getStudentChecklistLogs(studentId, deskId) {
+    const [rows] = await this.db.query(
+        `
+         SELECT
+          dci.id AS checklist_item_id,
+          dci.desk_id,
+          dci.description,
+          dci.required,
+          dci.display_order,
+          dci.type,
+
+          dcl.id AS log_id,
+          dcl.checked,
+          dcl.remarks,
+          dcl.checked_at,
+          dcl.checked_by,
+
+          u.name AS checked_by_name
+
+      FROM desk_checklist_items dci
+
+      LEFT JOIN desk_checklist_logs dcl
+          ON dcl.checklist_item_id = dci.id
+        AND dcl.student_id = ?
+
+      LEFT JOIN users u
+          ON u.id = dcl.checked_by
+
+      WHERE dci.desk_id = ?
+        AND dci.active = 1
+
+      ORDER BY dci.display_order ASC
+        `,
+        [studentId, deskId]
+    );
+    return rows;
+}
+
+async updateChecklistItem(studentId, deskId, checklistItemId, checked, userId) {
+    const finalValue =
+        checked !== null && checked !== undefined && String(checked).trim() !== ""
+            ? String(checked).trim()
+            : null;
+
+    const [exists] = await this.db.query(
+        `SELECT id FROM desk_checklist_logs WHERE student_id = ? AND checklist_item_id = ?`,
+        [studentId, checklistItemId]
+    );
+
+    if (exists.length) {
+        await this.db.query(
+            `
+            UPDATE desk_checklist_logs
+            SET
+                checked = ?,
+                checked_by = ?,
+                checked_at = NOW()
+            WHERE student_id = ?
+              AND checklist_item_id = ?
+            `,
+            [finalValue, userId, studentId, checklistItemId]
+        );
+    } else {
+        await this.db.query(
+            `
+            INSERT INTO desk_checklist_logs
+                (student_id, checklist_item_id, checked, checked_by, checked_at)
+            VALUES (?, ?, ?, ?, NOW())
+            `,
+            [studentId, checklistItemId, finalValue, userId]
+        );
+    }
+}
+
+async exportReport(filters = {}) {
+
+    const [students] = await this.db.query(
+        `
+        SELECT
+            s.id,
+            s.first_name,
+            s.roll_number,
+            s.application_number,
+            s.email,
+            s.gender,
+            s.expected_date,
+            s.arrival_date,
+            s.remarks,
+
+            d.id   AS current_desk_id,
+            d.desk_name AS current_desk_name
+
+        FROM students s
+
+        LEFT JOIN desks d
+            ON d.id = s.current_desk_id
+
+        ORDER BY s.first_name
+        `
+    );
+
+    const [desks] = await this.db.query(
+        `
+        SELECT
+            id,
+            desk_name,
+            qr_slug,
+            display_order
+        FROM desks
+        WHERE active = 1
+        ORDER BY display_order
+        `
+    );
+
+    const [checklistItems] = await this.db.query(
+        `
+        SELECT
+            id,
+            desk_id,
+            description,
+            type,
+            required,
+            display_order
+
+        FROM desk_checklist_items
+
+        WHERE active = 1
+
+        ORDER BY
+            desk_id,
+            display_order
+        `
+    );
+
+
+    const [checklistLogs] = await this.db.query(
+        `
+        SELECT
+
+            dcl.student_id,
+
+            dcl.checklist_item_id,
+
+            dcl.checked,
+
+            dcl.checked_at,
+
+            dcl.checked_by,
+
+            u.name AS checked_by_name
+
+        FROM desk_checklist_logs dcl
+
+        LEFT JOIN users u
+            ON u.id = dcl.checked_by
+        `
+    );
+
+    const [deskLogs] = await this.db.query(
+        `
+        SELECT
+
+            sdl.student_id,
+
+            sdl.desk_id,
+
+            sdl.scan_time,
+
+            d.desk_name
+
+        FROM logs sdl
+
+        INNER JOIN desks d
+            ON d.id = sdl.desk_id
+
+        ORDER BY
+            sdl.student_id,
+            sdl.scan_time
+        `
+    );
+
+
+
+    return {
+
+        students,
+
+        desks,
+
+        checklistItems,
+
+        checklistLogs,
+
+        deskLogs
+
+    };
+
+}
+}
+
 
 module.exports = DeskService;

@@ -278,3 +278,97 @@ exports.getStudents = async (req, res) => {
     });
   }
 };
+
+exports.getDeskChecklist = async (req, res, next) => {
+
+    try {
+
+ const deskService = new DeskService(getDB());
+
+        const checklist =
+            await deskService.getDeskChecklist(
+                req.params.deskId
+            );
+
+        res.json({
+            success: true,
+            data: checklist,
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};
+
+exports.getStudentChecklistLogs = async (req, res, next) => {
+
+    try {
+
+         const deskService = new DeskService(getDB());
+
+        const logs =
+            await deskService.getStudentChecklistLogs(
+                req.params.studentId,
+                 req.params.deskId
+            );
+
+        res.json({
+            success: true,
+            data: logs,
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};
+
+exports.updateChecklistItem = async (req, res, next) => {
+
+    try {
+
+         const deskService = new DeskService(getDB());
+        await deskService.updateChecklistItem(
+            req.body.studentId,
+            req.body.deskId,
+            req.body.checklistItemId,
+            req.body.checked,
+            req.user.id
+        );
+
+        res.json({
+            success: true,
+            message: "Checklist updated."
+        });
+
+    } catch (err) {
+
+        next(err);
+
+    }
+
+};
+
+exports.exportReport = async (req, res, next) => {
+    try {
+
+       const deskService = new DeskService(getDB());
+
+        const data = await deskService.exportReport(
+            req.query
+        );
+
+        res.json({
+            success: true,
+            data
+        });
+
+    } catch (err) {
+        next(err);
+    }
+};

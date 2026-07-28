@@ -675,6 +675,10 @@ function OnboardingFormModal({ initial, onClose, onSave, C, saving }) {
           <FieldLabel C={C}>Year</FieldLabel>
           <TextInput C={C} value={form.year} onChange={(e) => setForm((f) => ({ ...f, year: e.target.value }))} placeholder="e.g. 2026" />
         </div>
+        <div>
+          <FieldLabel C={C}>Degree Type</FieldLabel>
+          <TextInput C={C} value={form.degreeType} onChange={(e) => setForm((f) => ({ ...f, degreeType: e.target.value }))} placeholder="P" />
+        </div>
 
         <div>
           <div className="flex items-center justify-between mb-1.5">

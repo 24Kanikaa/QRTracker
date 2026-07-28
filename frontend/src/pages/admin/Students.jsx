@@ -24,24 +24,31 @@ import {
   ChevronsLeft,
   ChevronsRight,
   CircleDashed,
+  User,
+  MessageSquareText,
   X,
   Check,
   Minus,
   User as UserIcon,
   Tag,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
-import { getStudentOverview } from "../../services/deskService";
+import {
+  getStudentOverview,
+  getStudentChecklistLogs,
+  updateChecklistItem,
+  exportReport,
+} from "../../services/deskService";
 import { getStudentInfo, updateStudentRemarks } from "../../services/settingServices";
 import { getDashboardData } from "../../services/Dashboardservice";
 import Swal from "sweetalert2";
 import { useTheme } from "../../context/ThemeContext";
 import { GhostButton, Modal, PrimaryButton } from "./Settings";
+import { generateWorkbook } from "../../utils/exportWorkbook";
 
 /* ============================================================
-   DESK ICON MAPPING — desks now come from the backend, so we
-   match known desk names to a nice icon and fall back to a
-   generic one for anything we don't recognize.
+   DESK ICON MAPPING
    ============================================================ */
 
 const DESK_ICON_MAP = {
@@ -56,6 +63,7 @@ const DESK_ICON_MAP = {
   library: Library,
 };
 
+const cacheKey = (studentId, deskId) => `${studentId}_${deskId}`;
 function getDeskIcon(deskName) {
   const normalized = (deskName || "").toLowerCase().replace(/[^a-z]/g, "");
   return DESK_ICON_MAP[normalized] || LayoutGrid;
@@ -71,43 +79,89 @@ function slugifyDeskName(deskName) {
   );
 }
 
+// ------------------------------------------------------------
+// Single source of truth for "is this checklist item marked".
+// Backend stores `checked` as a STRING ("1" for checkboxes, or
+// the raw text for text-type items) — never compare with
+// strict `=== 1` (number) or you'll silently miss everything
+// once data comes back from the DB instead of local state.
+// ------------------------------------------------------------
+function isItemMarked(item) {
+  if (item?.checked === null || item?.checked === undefined) return false;
+  const val = String(item.checked).trim();
+  return val !== "" && val !== "0";
+}
 
 function computeStatus(completedCount, totalDesks, arrivalDate) {
   if (totalDesks > 0 && completedCount === totalDesks) return "COMPLETED";
   if (arrivalDate) return "IN_PROGRESS";
   return "EXPECTED";
 }
-
 function normalizeOverview(payload) {
   const desksRaw = payload?.desks || [];
   const studentsRaw = payload?.students || [];
+  const checklistLogs = payload?.checklistLogs || {};
 
-  const desks = desksRaw.map((d) => ({
-    key: slugifyDeskName(d.desk_name),
-    name: d.desk_name,
-    title: d.desk_name,
-    icon: getDeskIcon(d.desk_name),
-  }));
+  const desks = desksRaw.map((d) => {
+    return {
+      key: slugifyDeskName(d.desk_name),
+      name: d.desk_name,
+      id: d.id ?? d.desk_id,
+      title: d.desk_name,
+      icon: getDeskIcon(d.desk_name),
+    };
+  });
 
   const students = studentsRaw.map((s) => {
     const totalDesks = s.totalDesks ?? desks.length;
     const completedCount = s.completedCount ?? 0;
     const arrivalDate = s.arrivalDate;
 
-    const status = computeStatus(completedCount, totalDesks, arrivalDate);
-    const progress = totalDesks > 0 ? Math.round((completedCount / totalDesks) * 100) : 0;
+    const status = computeStatus(
+      completedCount,
+      totalDesks,
+      arrivalDate
+    );
+
+    const progress =
+      totalDesks > 0
+        ? Math.round((completedCount / totalDesks) * 100)
+        : 0;
 
     const cells = {};
+
     desks.forEach((col) => {
       const entry = s.desks?.[col.name];
-      cells[col.key] =
-        entry && entry.status === "completed" && entry.time
+
+      // get checklist for this student + desk
+      const checklist =
+        checklistLogs[cacheKey(s.id, col.id)] || [];
+
+      const checkedCount =
+        entry?.checkedCount ??
+        entry?.checked_count ??
+        null;
+
+      const totalCount = checklist.length;
+
+      const time =
+        entry &&
+        entry.status === "completed" &&
+        entry.time
           ? new Date(entry.time).toLocaleTimeString("en-US", {
               hour: "numeric",
               minute: "2-digit",
               hour12: true,
             })
           : null;
+
+      cells[col.key] = {
+        time,
+        checkedCount,
+        totalCount,
+        hasChecklist: checklist.length > 0,
+        checklist,
+      };
     });
 
     return {
@@ -119,10 +173,6 @@ function normalizeOverview(payload) {
       gender: s.gender,
       expectedDate: s.expectedDate,
       arrivalDate,
-      // Plain "YYYY-MM-DD" keys computed by MySQL (DATE_FORMAT), and a
-      // ready-made unexpected-arrival flag computed with the exact same
-      // predicate the dashboard's SQL uses. No date parsing/timezone
-      // guessing needed on the frontend anymore.
       expectedDateKey: s.expectedDateKey,
       arrivalDateKey: s.arrivalDateKey,
       isUnexpectedArrival: Boolean(s.isUnexpectedArrival),
@@ -138,7 +188,6 @@ function normalizeOverview(payload) {
 
   return { desks, students };
 }
-
 function formatDate(value) {
   if (!value || value === "all") return value === "all" ? "All dates" : "—";
   const d = new Date(value);
@@ -175,51 +224,343 @@ function downloadCSV(rows, header, filename) {
   URL.revokeObjectURL(url);
 }
 
-function Cell({ value, C }) {
-  if (!value) {
-    return (
-      <div className="flex justify-center">
-        <span
-          className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
-          style={{ color: C.mutedSoft, borderColor: C.hairline }}
-        >
-          Pending
-        </span>
-      </div>
-    );
+async function mapWithConcurrency(items, limit, worker) {
+  let cursor = 0;
+  async function run() {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      try {
+        await worker(items[idx], idx);
+      } catch (err) {
+        // leave this pair uncached; its cell just falls back to "Pending"
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
+}
+
+function DeskChecklistModal({ open, onClose, loading, desk, student, items, completionTime, onToggleItem, C }) {
+  if (!open) return null;
+
+  const total = items.length;
+  const checkedCount = items.filter((i) => isItemMarked(i)).length;
+  const allDone = total > 0 && checkedCount === total;
+  const lastUpdatedItem = [...items]
+  .filter((i) => i.checked_at)
+  .sort(
+    (a, b) =>
+      new Date(b.checked_at) - new Date(a.checked_at)
+  )[0];
+
   return (
-    <div className="flex justify-center">
+    <Modal title={`${desk?.title || "Desk"} Checklist — ${student?.name || ""}`} width={640} onClose={onClose} C={C}>
+      {loading ? (
+        <div className="py-16 text-center text-sm" style={{ color: C.muted }}>
+          Loading checklist...
+        </div>
+      ) : items.length === 0 ? (
+        <div className="py-16 text-center text-sm" style={{ color: C.muted }}>
+          No checklist items configured for this desk.
+        </div>
+      ) : (
+        <>
+          {/* Progress / completion header */}
+          <div
+            className="rounded-xl px-4 py-3 mb-4 flex items-center justify-between"
+            style={{
+              background: allDone ? C.greenSoft : C.panel2,
+              border: `1px solid ${allDone ? C.green : C.hairline}`,
+            }}
+          >
+            <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              {allDone ? (
+                <CheckCircle2 size={16} style={{ color: C.green }} />
+              ) : (
+                <Clock3 size={16} style={{ color: C.brass }} />
+              )}
+
+              <span
+                className="text-sm font-semibold"
+                style={{ color: allDone ? C.green : C.text }}
+              >
+                {allDone
+                  ? completionTime
+                    ? `Completed at ${completionTime}`
+                    : "All items verified"
+                  : `${checkedCount}/${total} items verified`}
+              </span>
+            </div>
+
+            {lastUpdatedItem && (
+              <div
+                className="text-xs flex items-center gap-1"
+                style={{ color: C.muted }}
+              >
+                <User size={12} />
+                <span>
+                  Last updated by{" "}
+                  <strong style={{ color: C.text }}>
+                    {lastUpdatedItem.checked_by_name}
+                  </strong>
+                </span>
+              </div>
+            )}
+          </div>
+            {!allDone && (
+              <span className="text-xs font-medium" style={{ color: C.muted }}>
+                {total - checkedCount} remaining
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {items.map((item) => {
+              const isChecked = isItemMarked(item);
+              const isSaving = Boolean(item.saving);
+              const isTextItem = item.type === "text";
+
+              return (
+                <div
+                  key={item.checklist_item_id}
+                  className="rounded-xl p-4"
+                  style={{ background: C.panel2, border: `1px solid ${C.hairline}` }}
+                >
+                  {isTextItem ? (
+                    <TextChecklistRow
+                      item={item}
+                      isSaving={isSaving}
+                      onSave={(value) => onToggleItem(item, value ? value : null)}
+                      C={C}
+                    />
+                  ) : (
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <span className="shrink-0 mt-0.5">
+                        {isSaving ? (
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center"
+                            style={{ background: C.panel, border: `1px solid ${C.hairline}` }}
+                          >
+                            <Loader2 size={13} className="animate-spin" style={{ color: C.muted }} />
+                          </div>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isSaving}
+                            onChange={() => onToggleItem(item, isChecked ? null : "1")}
+                            className="w-5 h-5 rounded cursor-pointer"
+                            style={{ accentColor: C.green }}
+                          />
+                          
+                        )}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium" style={{ color: C.text }}>
+                          {item.description}
+                        </p>
+                        <p className="text-xs mt-1" style={{ color: isChecked ? C.green : C.mutedSoft }}>
+                          {isChecked ? "Verified" : "Pending"}
+                        </p>
+                      </div>
+                    </label>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+// Separate sub-component so each text row holds its own draft state
+// without re-rendering every other row on keystroke.
+function TextChecklistRow({ item, isSaving, onSave, C }) {
+  const [value, setValue] = useState(item.checked || "");
+
+  useEffect(() => {
+    setValue(item.checked || "");
+  }, [item.checked]);
+
+  const dirty = value !== (item.checked || "");
+
+  return (
+    <div>
+      <label
+        className="block text-sm font-medium mb-2"
+        style={{ color: C.text }}
+      >
+        {item.description}
+      </label>
+
+      <input
+        type="text"
+        value={value}
+        placeholder="Enter remarks..."
+        className="w-full rounded-lg px-3 py-2 text-sm"
+        style={{
+          background: C.panel,
+          border: `1px solid ${C.hairline}`,
+          color: C.text,
+        }}
+        onChange={(e) => setValue(e.target.value)}
+      />
+
+      {dirty && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            disabled={isSaving}
+            onClick={() => onSave(value.trim())}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            style={{
+              background: C.greenSoft,
+              color: C.green,
+              border: `1px solid ${C.green}`,
+              opacity: isSaving ? 0.7 : 1,
+            }}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Check size={13} />
+                Save
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) {
+  const hasCounts = typeof totalCount === "number" && totalCount > 0;
+  const hasVerified = hasCounts && (checkedCount ?? 0) > 0;
+
+  let content;
+
+  const isCompleted = hasCounts && totalCount > 0 && checkedCount === totalCount;
+
+  if (time) {
+    content = (
       <span
         className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
         style={{ background: C.greenSoft, borderColor: C.greenSoft }}
       >
         <span className="text-xs font-medium whitespace-nowrap" style={{ color: C.green }}>
-          {value}
+          {isCompleted
+            ? `${time} | Completed`
+            : hasCounts
+            ? `${time} | ${checkedCount}/${totalCount}`
+            : time}
         </span>
       </span>
+    );
+  } else if (hasVerified) {
+    content = (
+      <span
+        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap"
+        style={{
+          background: isCompleted ? C.greenSoft : C.brassSoft,
+          borderColor: isCompleted ? C.greenSoft : C.brassSoft,
+        }}
+      >
+        <span
+          className="text-xs font-medium whitespace-nowrap"
+          style={{ color: isCompleted ? C.green : C.brass }}
+        >
+          {isCompleted ? "Verified" : `${checkedCount}/${totalCount}`}
+        </span>
+      </span>
+    );
+  } else {
+    content = (
+      <span
+        className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
+        style={{ color: C.mutedSoft, borderColor: C.hairline }}
+      >
+        Pending
+      </span>
+    );
+  }
+
+  if (!clickable) {
+    return <div className="flex justify-center">{content}</div>;
+  }
+
+  return (
+    <div className="flex justify-center">
+      <button onClick={onClick} className="transition-transform hover:scale-105" title="View checklist details">
+        {content}
+      </button>
     </div>
   );
 }
 
-function StudentIdentity({ student, C }) {
+function StudentIdentity({ student, C, alert = false }) {
   const name = student.name || "—";
   return (
     <div className="flex items-center gap-3">
       <div
         className="w-9 h-9 rounded-full text-white flex items-center justify-center font-semibold shrink-0"
-        style={{ background: `linear-gradient(135deg,${C.brass},${C.green})` }}
+        style={{
+          background: alert
+            ? `linear-gradient(135deg,${C.rose},#b91c1c)`
+            : `linear-gradient(135deg,${C.brass},${C.green})`,
+        }}
+        title={alert ? "Arrived on a different day than expected" : undefined}
       >
         {name.charAt(0).toUpperCase()}
       </div>
       <div>
-        <h3 className="font-semibold text-sm" style={{ color: C.text }}>
+        <h3 className="font-semibold text-sm flex items-center gap-1.5" style={{ color: C.text }}>
           {name}
+          {alert && <AlertTriangle size={12} style={{ color: C.rose }} />}
         </h3>
         <p className="text-xs" style={{ color: C.muted }}>
           {student.email}
         </p>
       </div>
+    </div>
+  );
+}
+
+function CircularProgress({ progress, C, size = 36, stroke = 4 }) {
+  const pct = Math.max(0, Math.min(100, progress));
+  const isComplete = pct >= 100;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+  return (
+    <div className="relative inline-flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={C.hairlineSoft} strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={isComplete ? C.green : C.brass}
+          strokeWidth={stroke}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 300ms ease" }}
+        />
+      </svg>
+      <span
+        className="absolute font-bold"
+        style={{ fontSize: size <= 36 ? 11 : 12, color: isComplete ? C.green : C.text }}
+      >
+        {pct}%
+      </span>
     </div>
   );
 }
@@ -238,7 +579,6 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
 
     try {
       setSavingRemarks(true);
-
       await updateStudentRemarks(student.id, remarks);
 
       Swal.fire({
@@ -252,7 +592,6 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
       onRemarksSaved?.(student.id, remarks);
     } catch (err) {
       console.error(err);
-
       Swal.fire({
         icon: "error",
         title: "Unable to save remarks",
@@ -271,21 +610,14 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
         </div>
       ) : (
         <>
-          {/* Header */}
           <div
             className="rounded-2xl p-5 mb-6 flex items-center justify-between"
-            style={{
-              background: C.panel2,
-              border: `1px solid ${C.hairline}`,
-            }}
+            style={{ background: C.panel2, border: `1px solid ${C.hairline}` }}
           >
             <div className="flex items-center gap-4">
               <div
                 className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold"
-                style={{
-                  background: C.brassSoft,
-                  color: C.brass,
-                }}
+                style={{ background: C.brassSoft, color: C.brass }}
               >
                 {student?.first_name?.[0]}
                 {student?.last_name?.[0]}
@@ -295,40 +627,16 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
                 <h2 className="text-xl font-bold" style={{ color: C.text }}>
                   {student?.first_name} {student?.last_name}
                 </h2>
-
                 <p className="text-sm mt-1" style={{ color: C.muted }}>
                   {student?.email}
                 </p>
                 <p className="font-semibold mt-1" style={{ color: C.text }}>
                   {student?.roll_number || "—"}
                 </p>
-
-                <div className="flex gap-2 mt-2">
-                  <span
-                    className="px-3 py-1 rounded-full text-xs font-medium"
-                    style={{
-                      background: C.greenSoft,
-                      color: C.green,
-                    }}
-                  >
-                    {student?.status}
-                  </span>
-
-                  <span
-                    className="px-3 py-1 rounded-full text-xs font-medium"
-                    style={{
-                      background: C.panel,
-                      color: C.muted,
-                    }}
-                  >
-                    {student?.admission_year}
-                  </span>
-                </div>
               </div>
             </div>
           </div>
 
-          {/* Sections */}
           <div className="grid grid-cols-2 gap-5">
             <Section title="Personal Information" C={C}>
               <Info label="Application No." value={student?.application_number} />
@@ -358,29 +666,17 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
             </Section>
           </div>
 
-          {/* Remarks */}
-          <div
-            className="mt-6 rounded-2xl p-5"
-            style={{
-              background: C.panel2,
-              border: `1px solid ${C.hairline}`,
-            }}
-          >
+          <div className="mt-6 rounded-2xl p-5" style={{ background: C.panel2, border: `1px solid ${C.hairline}` }}>
             <label className="block text-sm font-semibold mb-3" style={{ color: C.text }}>
               Internal Remarks
             </label>
-
             <textarea
               rows={4}
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               placeholder="Add remarks..."
               className="w-full rounded-xl p-3 resize-none outline-none"
-              style={{
-                background: C.panel,
-                border: `1px solid ${C.hairline}`,
-                color: C.text,
-              }}
+              style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.text }}
             />
           </div>
 
@@ -388,7 +684,6 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
             <GhostButton C={C} onClick={onClose}>
               Close
             </GhostButton>
-
             <PrimaryButton C={C} onClick={handleSaveRemarks} disabled={savingRemarks}>
               {savingRemarks ? "Saving..." : "Save Remarks"}
             </PrimaryButton>
@@ -401,17 +696,10 @@ function StudentProfileModal({ open, student, loading, onClose, C, onRemarksSave
 
 function Section({ title, children, C }) {
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{
-        background: C.panel2,
-        border: `1px solid ${C.hairline}`,
-      }}
-    >
+    <div className="rounded-2xl p-5" style={{ background: C.panel2, border: `1px solid ${C.hairline}` }}>
       <h3 className="text-sm font-semibold mb-4" style={{ color: C.text }}>
         {title}
       </h3>
-
       <div className="space-y-3">{children}</div>
     </div>
   );
@@ -421,8 +709,145 @@ function Info({ label, value }) {
   return (
     <div>
       <div className="text-xs text-slate-500 mb-1">{label}</div>
-
       <div className="font-medium">{value || "—"}</div>
+    </div>
+  );
+}
+
+function DeskChecklistFilterControl({ desk, filter, onChange, C }) {
+  const [open, setOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(filter?.type === "eq" ? String(filter.value) : "");
+  const wrapRef = useRef(null);
+  const Icon = desk.icon;
+
+  useEffect(() => {
+    setInputValue(filter?.type === "eq" ? String(filter.value) : "");
+  }, [filter]);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const label =
+    filter?.type === "pending"
+      ? "Pending"
+      : filter?.type === "verified"
+      ? "Verified"
+      : filter?.type === "eq"
+      ? `= ${filter.value}`
+      : null;
+
+  const applyEqual = () => {
+    const trimmed = inputValue.trim();
+    if (trimmed === "") return;
+    const num = Number(trimmed);
+    if (Number.isNaN(num) || num < 0) return;
+    onChange({ type: "eq", value: num });
+    setOpen(false);
+  };
+
+  const selectOption = (type) => {
+    onChange(filter?.type === type ? null : { type });
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition-colors"
+        style={
+          filter
+            ? { background: C.brass, borderColor: C.brass, color: "#fff" }
+            : { background: C.panel2, borderColor: C.hairline, color: C.text }
+        }
+      >
+        <Icon size={14} />
+        {desk.title}
+        {label && (
+          <span
+            className="text-[11px] font-semibold px-1.5 py-0.5 rounded-full"
+            style={{ background: "rgba(255,255,255,0.25)" }}
+          >
+            {label}
+          </span>
+        )}
+        <ChevronDown
+          size={12}
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 150ms ease" }}
+        />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-30 mt-2 w-56 rounded-xl p-2"
+          style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}
+        >
+          <button
+            onClick={() => selectOption("pending")}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between"
+            style={{ color: C.text, background: filter?.type === "pending" ? C.panel2 : "transparent" }}
+          >
+            Pending
+            {filter?.type === "pending" && <Check size={14} style={{ color: C.brass }} />}
+          </button>
+
+          <button
+            onClick={() => selectOption("verified")}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between"
+            style={{ color: C.text, background: filter?.type === "verified" ? C.panel2 : "transparent" }}
+          >
+            Verified
+            {filter?.type === "verified" && <Check size={14} style={{ color: C.brass }} />}
+          </button>
+
+          <div className="px-3 py-2 mt-1" style={{ borderTop: `1px solid ${C.hairline}` }}>
+            <p className="text-xs font-medium mb-1.5 mt-1" style={{ color: C.muted }}>
+              Equal to
+            </p>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                  }
+                }}
+                placeholder="e.g. 3"
+                className="w-full px-2 py-1.5 rounded-lg outline-none text-sm"
+                style={{ background: C.panel2, border: `1px solid ${C.hairline}`, color: C.text }}
+              />
+              <button
+                onClick={applyEqual}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white shrink-0"
+                style={{ background: C.brass }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
+
+          {filter && (
+            <button
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs mt-1 font-medium"
+              style={{ color: C.rose }}
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -433,6 +858,7 @@ function Info({ label, value }) {
 
 export default function AdmissionOverviewPage() {
   const { dark, toggleDark, C } = useTheme();
+  const user = JSON.parse(localStorage.getItem("user"));
   const { setOpen: setSidebarOpen } = useOutletContext();
   const [students, setStudents] = useState([]);
   const [desks, setDesks] = useState([]);
@@ -441,8 +867,8 @@ export default function AdmissionOverviewPage() {
   const [selectedDate, setSelectedDate] = useState("all");
   const [statusTab, setStatusTab] = useState("all");
   const [search, setSearch] = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
 
-  // which single category dropdown is currently open (daywise | desk | gender | arrived | null)
   const [activeCategory, setActiveCategory] = useState(null);
   const toggleCategory = (key) => {
     setActiveCategory((prev) => (prev === key ? null : key));
@@ -450,26 +876,228 @@ export default function AdmissionOverviewPage() {
   const filterBarRef = useRef(null);
   const [activeFilters, setActiveFilters] = useState([]);
 
+  const [deskChecklistFilters, setDeskChecklistFilters] = useState({});
+  const [filtersApplying, setFiltersApplying] = useState(false);
+  const applyingTimeoutRef = useRef(null);
+
+  const setDeskChecklistFilter = (deskKey, filter) => {
+    setDeskChecklistFilters((prev) => {
+      const next = { ...prev };
+      if (!filter) {
+        delete next[deskKey];
+      } else {
+        next[deskKey] = filter;
+      }
+      return next;
+    });
+
+    setFiltersApplying(true);
+    if (applyingTimeoutRef.current) window.clearTimeout(applyingTimeoutRef.current);
+    applyingTimeoutRef.current = window.setTimeout(() => setFiltersApplying(false), 450);
+  };
+
+  const removeDeskChecklistFilter = (deskKey) => setDeskChecklistFilter(deskKey, null);
+
+  useEffect(() => {
+    return () => {
+      if (applyingTimeoutRef.current) window.clearTimeout(applyingTimeoutRef.current);
+    };
+  }, []);
+
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [studentProfile, setStudentProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
-
-  // Authoritative "not expected" count, sourced from the same dashboard
-  // endpoint the Dashboard page uses: getOverallDashboardData when viewing
-  // "All dates" (selectedDate === "all"), or getDaywiseDashboardData when
-  // a specific date is selected. This guarantees both pages always agree.
   const [notExpectedCount, setNotExpectedCount] = useState(null);
+
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistItems, setChecklistItems] = useState([]);
+  const [checklistDesk, setChecklistDesk] = useState(null);
+  const [checklistStudent, setChecklistStudent] = useState(null);
+
+  const [, setChecklistCacheState] = useState({});
+  const checklistCacheRef = useRef({});
+  const commitChecklistCache = (next) => {
+    checklistCacheRef.current = next;
+    setChecklistCacheState(next);
+  };
+  const cacheKey = (studentId, deskId) => `${studentId}:${deskId}`;
+
+  const mergeCachedCounts = (studentsList, desksList) => {
+    const cache = checklistCacheRef.current;
+    if (Object.keys(cache).length === 0) return studentsList;
+    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
+
+    return studentsList.map((s) => {
+      let nextCells = s.cells;
+      let touched = false;
+      checklistDesks.forEach((d) => {
+        const items = cache[cacheKey(s.id, d.id)];
+        if (!items) return;
+        const total = items.length;
+        const checked = items.filter((i) => isItemMarked(i)).length;
+        const prevCell = nextCells[d.key] || {};
+        nextCells = { ...nextCells, [d.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
+        touched = true;
+      });
+      if (!touched) return s;
+      const completedCount = Object.values(nextCells).filter((c) => c.time).length;
+      return {
+        ...s,
+        cells: nextCells,
+        completedCount,
+        progress: s.totalDesks > 0 ? Math.round((completedCount / s.totalDesks) * 100) : s.progress,
+        status: computeStatus(completedCount, s.totalDesks, s.arrivalDate),
+      };
+    });
+  };
+
+  const syncCellProgress = (student, desk, items) => {
+    if (!student || !desk) return;
+    const total = items.length;
+    const checked = items.filter((i) => isItemMarked(i)).length;
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id !== student.id) return s;
+        const prevCell = s.cells[desk.key] || {};
+        const nextCells = { ...s.cells, [desk.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
+        const completedCount = Object.values(nextCells).filter((c) => c.time).length;
+        return {
+          ...s,
+          cells: nextCells,
+          completedCount,
+          progress: s.totalDesks > 0 ? Math.round((completedCount / s.totalDesks) * 100) : s.progress,
+          status: computeStatus(completedCount, s.totalDesks, s.arrivalDate),
+        };
+      })
+    );
+  };
+
+  const CHECKLIST_PREFETCH_CONCURRENCY = 6;
+  const prefetchAllChecklists = async (studentsList, desksList) => {
+    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
+    if (checklistDesks.length === 0 || studentsList.length === 0) return;
+
+    const pairs = [];
+    studentsList.forEach((s) => {
+      checklistDesks.forEach((d) => pairs.push({ student: s, desk: d }));
+    });
+
+    const fetched = { ...checklistCacheRef.current };
+
+    await mapWithConcurrency(
+      pairs,
+      CHECKLIST_PREFETCH_CONCURRENCY,
+      async ({ student, desk }) => {
+        const { data } = await getStudentChecklistLogs(student.id, desk.id);
+
+        const rows = data?.data || data || [];
+
+        fetched[cacheKey(student.id, desk.id)] = rows;
+      }
+    );
+    commitChecklistCache(fetched);
+    setStudents((prev) => mergeCachedCounts(prev, desksList));
+  };
+
+  const openDeskChecklist = async (student, desk, e) => {
+    e.stopPropagation();
+    setChecklistStudent(student);
+    setChecklistDesk(desk);
+    setChecklistOpen(true);
+
+    const key = cacheKey(student.id, desk.id);
+    const cached = checklistCacheRef.current[key];
+    if (cached) {
+      setChecklistItems(cached);
+      setChecklistLoading(false);
+      return;
+    }
+
+    setChecklistLoading(true);
+    try {
+      const { data } = await getStudentChecklistLogs(student.id, desk.id);
+      const rows = data?.data || data || [];
+      setChecklistItems(rows);
+      
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: rows });
+      syncCellProgress(student, desk, rows);
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to load checklist",
+        text: err.response?.data?.message || "Something went wrong.",
+      });
+    } finally {
+      setChecklistLoading(false);
+    }
+  };
+
+  const closeDeskChecklist = () => {
+    setChecklistOpen(false);
+    setChecklistItems([]);
+    setChecklistDesk(null);
+    setChecklistStudent(null);
+  };
+
+  // `value` is what the modal wants to persist for this item:
+  //  - "1"  -> checkbox checked
+  //  - null -> checkbox unchecked / text field cleared
+  //  - any other string -> the entered text for a text-type item
+  const handleToggleChecklistItem = async (item, value) => {
+    if (!checklistStudent || !checklistDesk) return;
+    const key = cacheKey(checklistStudent.id, checklistDesk.id);
+    const previousChecked = item.checked;
+
+    const nextValue = value !== undefined ? value : (isItemMarked(item) ? null : "1");
+
+    const optimisticItems = checklistItems.map((i) =>
+      i.checklist_item_id === item.checklist_item_id ? { ...i, checked: nextValue, saving: true } : i
+    );
+    setChecklistItems(optimisticItems);
+    commitChecklistCache({ ...checklistCacheRef.current, [key]: optimisticItems });
+    syncCellProgress(checklistStudent, checklistDesk, optimisticItems);
+
+    try {
+      await updateChecklistItem(
+        checklistStudent.id,
+        checklistDesk.id,
+        item.checklist_item_id,
+        nextValue,
+        user.id
+      );
+
+      const settledItems = optimisticItems.map((i) =>
+        i.checklist_item_id === item.checklist_item_id ? { ...i, saving: false } : i
+      );
+      setChecklistItems(settledItems);
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: settledItems });
+      syncCellProgress(checklistStudent, checklistDesk, settledItems);
+      loadStudents({ silent: true });
+    } catch (err) {
+      console.error(err);
+      const revertedItems = optimisticItems.map((i) =>
+        i.checklist_item_id === item.checklist_item_id ? { ...i, checked: previousChecked, saving: false } : i
+      );
+      setChecklistItems(revertedItems);
+      commitChecklistCache({ ...checklistCacheRef.current, [key]: revertedItems });
+      syncCellProgress(checklistStudent, checklistDesk, revertedItems);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to update item",
+        text: err.response?.data?.message || "Something went wrong.",
+      });
+    }
+  };
 
   const openStudentProfile = async (student) => {
     try {
       setSelectedStudent(student);
       setLoadingProfile(true);
-
       const { data } = await getStudentInfo(student.email);
-      // console.log(data);
-
       setStudentProfile(data.student);
     } catch (err) {
       console.error(err);
@@ -482,37 +1110,80 @@ export default function AdmissionOverviewPage() {
       setLoadingProfile(false);
     }
   };
+
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
 
-  const loadStudents = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const res = await getStudentOverview();
-      const { desks: normalizedDesks, students: normalizedStudents } = normalizeOverview(res.data.data);
-      setDesks(normalizedDesks);
-      setStudents(normalizedStudents);
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't load student data. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+const loadStudents = async ({ silent = false } = {}) => {
+  try {
+    if (!silent) setLoading(true);
+    setError(null);
+
+    const res = await getStudentOverview();
+
+    const overviewData = res.data.data;
+
+    // create checklist cache
+    const checklistLogs = {};
+
+    const pairs = [];
+
+    overviewData.students.forEach((student) => {
+      overviewData.desks.forEach((desk) => {
+        pairs.push({ student, desk });
+      });
+    });
+
+    await mapWithConcurrency(
+      pairs,
+      CHECKLIST_PREFETCH_CONCURRENCY,
+      async ({ student, desk }) => {
+        const { data } = await getStudentChecklistLogs(student.id, desk.id);
+
+        const rows = data?.data || data || [];
+
+        checklistLogs[cacheKey(student.id, desk.id)] = rows;
+      }
+    );
+
+    const { desks: normalizedDesks, students: normalizedStudents } =
+      normalizeOverview({
+        ...overviewData,
+        checklistLogs,
+      });
+
+    setDesks(normalizedDesks);
+    setStudents(
+      mergeCachedCounts(normalizedStudents, normalizedDesks)
+    );
+
+    return {
+      desks: normalizedDesks,
+      students: normalizedStudents,
+    };
+
+  } catch (err) {
+    console.error(err);
+    setError("Couldn't load student data. Please try again.");
+    return null;
+  } finally {
+    if (!silent) setLoading(false);
+  }
+};
 
   useEffect(() => {
-    loadStudents();
+    (async () => {
+      const result = await loadStudents();
+      if (result) {
+        prefetchAllChecklists(result.students, result.desks);
+      }
+    })();
   }, []);
 
   useEffect(() => {
     setPage(1);
-  }, [search, selectedDate, statusTab, activeFilters]);
+  }, [search, selectedDate, statusTab, activeFilters, deskChecklistFilters]);
 
-  // Fetch the authoritative "not expected" count from the same endpoints
-  // the Dashboard page uses. "All dates" -> overall mode (global count,
-  // across every student). A specific date -> daywise mode (scoped to
-  // that single date), matching each backend query exactly.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -550,7 +1221,6 @@ export default function AdmissionOverviewPage() {
     );
   }, [dateFiltered, search]);
 
-  // ---- derive per-category selections from activeFilters ----
   const selectedDeskKeys = useMemo(
     () => activeFilters.filter((f) => f.category === "desk").map((f) => f.value),
     [activeFilters]
@@ -581,32 +1251,33 @@ export default function AdmissionOverviewPage() {
   const clearAllFilters = () => {
     setActiveFilters([]);
     setSelectedDate("all");
+    setDeskChecklistFilters({});
   };
 
-  // desks: student must have completed ALL selected desks
-  // gender / arrived: student must match ANY selected value in that category
+  const matchesDeskChecklistFilters = (s) =>
+    Object.entries(deskChecklistFilters).every(([deskKey, f]) => {
+      const cell = s.cells[deskKey];
+      const checked = cell?.checkedCount ?? 0;
+      const total = cell?.totalCount ?? 0;
+      if (f.type === "pending") return checked === 0;
+      if (f.type === "verified") return total > 0 && checked === total;
+      if (f.type === "eq") return checked === Number(f.value);
+      return true;
+    });
+
   const deskFiltered = useMemo(
     () =>
       searchFiltered.filter((s) => {
-        const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+        const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]?.time));
         const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
-       const arrivedOk =
-        selectedArrived.length === 0 ||
-        selectedArrived.includes(
-          s.remarks && s.remarks.trim() !== "" ? "yes" : "no"
-        );
-        // console.log(s.arrivedOk);
-        // console.log(s);
-        return deskOk && genderOk && arrivedOk;
+        const arrivedOk =
+          selectedArrived.length === 0 ||
+          selectedArrived.includes(s.remarks && s.remarks.trim() !== "" ? "yes" : "no");
+        return deskOk && genderOk && arrivedOk && matchesDeskChecklistFilters(s);
       }),
-    [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived]
+    [searchFiltered, selectedDeskKeys, selectedGenders, selectedArrived, deskChecklistFilters]
   );
 
-  // Students whose arrival date doesn't match their expected date.
-  // Uses the backend's precomputed keys directly — no date parsing here:
-  //  - "All dates": isUnexpectedArrival (arrival_date IS NOT NULL AND
-  //     DATE(arrival_date) <> expected_date, computed by MySQL)
-  //  - Specific date: arrivalDateKey === date AND expectedDateKey !== date
   const unexpectedArrivals = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -619,19 +1290,19 @@ export default function AdmissionOverviewPage() {
 
     return base.filter((s) => {
       const searchOk = !q || (s.email || "").toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q);
-      const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]));
+      const deskOk = selectedDeskKeys.length === 0 || selectedDeskKeys.every((key) => Boolean(s.cells[key]?.time));
       const genderOk = selectedGenders.length === 0 || selectedGenders.includes((s.gender || "").toLowerCase());
       const arrivedOk = selectedArrived.length === 0 || selectedArrived.includes(s.arrivalDate ? "yes" : "no");
-      return searchOk && deskOk && genderOk && arrivedOk;
+      return searchOk && deskOk && genderOk && arrivedOk && matchesDeskChecklistFilters(s);
     });
-  }, [students, selectedDate, search, selectedDeskKeys, selectedGenders, selectedArrived]);
+  }, [students, selectedDate, search, selectedDeskKeys, selectedGenders, selectedArrived, deskChecklistFilters]);
 
-  // Are any search/desk/gender/arrived filters currently narrowing the
-  // list? Only in this "nothing extra applied" state does the backend's
-  // global notExpectedCount describe the same population as
-  // unexpectedArrivals — so it's only safe to show it then.
   const hasExtraFilters =
-    Boolean(search.trim()) || selectedDeskKeys.length > 0 || selectedGenders.length > 0 || selectedArrived.length > 0;
+    Boolean(search.trim()) ||
+    selectedDeskKeys.length > 0 ||
+    selectedGenders.length > 0 ||
+    selectedArrived.length > 0 ||
+    Object.keys(deskChecklistFilters).length > 0;
 
   const counts = useMemo(() => {
     const c = {
@@ -639,13 +1310,6 @@ export default function AdmissionOverviewPage() {
       completed: 0,
       inprogress: 0,
       expected: 0,
-      // The badge must always describe what's actually rendered in the
-      // "Unexpected Arrivals" tab. unexpectedArrivals already applies
-      // search/desk/gender/arrived filters, so use its length directly.
-      // Only when no extra filters are active do we additionally prefer
-      // the backend's authoritative count (it matches the Dashboard
-      // exactly in that unfiltered case) — falling back to the local
-      // count if it hasn't loaded yet or the call failed.
       unexpected: hasExtraFilters ? unexpectedArrivals.length : (notExpectedCount ?? unexpectedArrivals.length),
     };
     deskFiltered.forEach((s) => {
@@ -683,30 +1347,31 @@ export default function AdmissionOverviewPage() {
     { key: "unexpected", label: "Unexpected Arrivals", icon: AlertTriangle, count: counts.unexpected },
   ];
 
-  const handleExport = () => {
-    const isExpected = statusTab === "expected";
-    const isUnexpected = statusTab === "unexpected";
-    let header, rows;
-    if (isExpected) {
-      header = ["#", "Name", "Email", "Onboarding Day", "Status"];
-      rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), "Awaiting check-in"]);
-    } else if (isUnexpected) {
-      header = ["#", "Name", "Email", "Expected Day", "Arrival Date"];
-      rows = visibleStudents.map((s, i) => [i + 1, s.name, s.email, formatDate(s.expectedDate), formatDate(s.arrivalDate)]);
-    } else {
-      header = ["#", "Name", "Email", "Progress %", "Current Desk", ...desks.map((d) => d.title), "Remarks"];
-      rows = visibleStudents.map((s, i) => [
-        i + 1,
-        s.name,
-        s.email,
-        s.progress,
-        s.currentDesk || "—",
-        ...desks.map((d) => s.cells[d.key] || "Pending"),
-        s.remarks?.trim() ? "Yes" : "No",
-      ]);
+const handleExport = async () => {
+    setExportLoading(true);
+    try {
+        const { data } = await exportReport({
+            date: selectedDate,
+            status: statusTab
+        });
+        console.log(data);
+       const today = new Date().toISOString().split("T")[0];
+
+      generateWorkbook(
+        data.data,
+        `Onboarding_Report_${today}.xlsx`
+      );
+    } catch (err) {
+        console.error(err);
+    } finally {
+        setExportLoading(false);
     }
-    downloadCSV(rows, header, `students-${statusTab}-${selectedDate}.csv`);
-  };
+};
+
+const checklistFilterDesks = useMemo(
+  () => desks.filter((d) => d.hasChecklist !== false),
+  [desks]
+);
 
   const filterCategories = [
     { key: "daywise", label: "Daywise", icon: Calendar },
@@ -715,12 +1380,22 @@ export default function AdmissionOverviewPage() {
     { key: "arrived", label: "Has Remarks", icon: Check },
   ];
 
-  const totalActiveFilterCount = activeFilters.length + (selectedDate !== "all" ? 1 : 0);
+  const totalActiveFilterCount =
+    activeFilters.length + (selectedDate !== "all" ? 1 : 0) + Object.keys(deskChecklistFilters).length;
+
+  const deskChecklistFilterLabel = (f) => {
+    if (f.type === "pending") return "Pending";
+    if (f.type === "verified") return "Verified";
+    if (f.type === "eq") return `= ${f.value}`;
+    return "";
+  };
+
+  const checklistCompletionTime =
+    checklistStudent && checklistDesk ? checklistStudent.cells[checklistDesk.key]?.time : null;
 
   return (
     <div style={{ background: C.bg, minHeight: "100%" }} className="transition-colors duration-300 p-6 md:p-10">
       <div className="mx-auto">
-        {/* ============ HEADER ============ */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
           <div className="flex items-center gap-3">
             <button
@@ -756,7 +1431,6 @@ export default function AdmissionOverviewPage() {
           Browse onboarding progress by day and status.
         </p>
 
-        {/* ---- error state ---- */}
         {error && (
           <div
             className="rounded-2xl p-4 mb-4 flex items-center justify-between gap-4"
@@ -775,7 +1449,6 @@ export default function AdmissionOverviewPage() {
           </div>
         )}
 
-        {/* ---- loading state ---- */}
         {loading && students.length === 0 && !error ? (
           <div className="rounded-2xl py-20 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
             <p className="text-sm" style={{ color: C.muted }}>
@@ -784,10 +1457,74 @@ export default function AdmissionOverviewPage() {
           </div>
         ) : (
           <>
-            {/* ---- filters bar (always visible, no toggle) ---- */}
             <div className="rounded-2xl p-4 mb-3" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+              {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
+                <div className="mb-4 pb-4" style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
+                    Selected Filters
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDate !== "all" && (
+                      <span
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {formatDate(selectedDate)}
+                        <button
+                          onClick={() => setSelectedDate("all")}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    )}
+                    {activeFilters.map((f) => (
+                      <span
+                        key={`${f.category}-${f.value}`}
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {f.label}
+                        <button
+                          onClick={() => removeFilter(f.category, f.value)}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    {Object.entries(deskChecklistFilters).map(([deskKey, f]) => {
+                      const desk = desks.find((d) => d.key === deskKey);
+                      return (
+                        <span
+                          key={`deskchk-${deskKey}`}
+                          className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                        >
+                          {desk?.title || deskKey}: {deskChecklistFilterLabel(f)}
+                          <button
+                            onClick={() => removeDeskChecklistFilter(deskKey)}
+                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                            style={{ background: C.brass, color: "#fff" }}
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {totalActiveFilterCount > 0 && (
+                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
+                        <X size={12} /> Clear all
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                {/* category pills */}
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
                     Filter by
@@ -801,6 +1538,11 @@ export default function AdmissionOverviewPage() {
                           ? selectedDate !== "all"
                             ? 1
                             : 0
+                          : cat.key === "desk"
+                          ? activeFilters.filter((f) => f.category === "desk").length +
+                            Object.keys(deskChecklistFilters).filter((key) =>
+                              checklistFilterDesks.some((d) => d.key === key)
+                            ).length
                           : activeFilters.filter((f) => f.category === cat.key).length;
 
                       return (
@@ -834,16 +1576,9 @@ export default function AdmissionOverviewPage() {
                         </button>
                       );
                     })}
-
-                    {totalActiveFilterCount > 0 && (
-                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
-                        <X size={12} /> Clear all
-                      </button>
-                    )}
                   </div>
                 </div>
 
-                {/* search + export, in place of the old Filters toggle button */}
                 <div className="flex gap-2.5">
                   <div className="relative w-full lg:w-64">
                     <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: C.muted }} />
@@ -857,56 +1592,30 @@ export default function AdmissionOverviewPage() {
                   </div>
                   <button
                     onClick={handleExport}
-                    className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium text-white transition shrink-0"
-                    style={{ background: C.brass }}
+                    disabled={exportLoading}
+                    className="h-11 px-4 rounded-xl flex items-center gap-2 text-sm font-medium text-white transition-all duration-200 shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{
+                      background: C.brass,
+                      cursor: exportLoading ? "not-allowed" : "pointer",
+                    }}
                   >
-                    <Download size={16} />
-                    Export CSV
+                    {exportLoading ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Exporting Excel...
+                      </>
+                    ) : (
+                      <>
+                        <Download size={16} />
+                        Export Excel
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
 
-              {/* active filter chips */}
-              {(activeFilters.length > 0 || selectedDate !== "all") && (
-                <div className="flex flex-wrap gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
-                  {selectedDate !== "all" && (
-                    <span
-                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                    >
-                      {formatDate(selectedDate)}
-                      <button
-                        onClick={() => setSelectedDate("all")}
-                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: C.brass, color: "#fff" }}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  )}
-                  {activeFilters.map((f) => (
-                    <span
-                      key={`${f.category}-${f.value}`}
-                      className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                      style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                    >
-                      {f.label}
-                      <button
-                        onClick={() => removeFilter(f.category, f.value)}
-                        className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                        style={{ background: C.brass, color: "#fff" }}
-                      >
-                        <X size={10} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* expanded options for the currently active category */}
               {activeCategory && (
                 <div ref={filterBarRef} className="flex flex-wrap items-center gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
-                  {/* DAYWISE OPTIONS — single select, drives selectedDate */}
                   {activeCategory === "daywise" &&
                     dates.map((d) => {
                       const active = selectedDate === d;
@@ -932,9 +1641,20 @@ export default function AdmissionOverviewPage() {
                     </p>
                   )}
 
-                  {/* DESK OPTIONS */}
                   {activeCategory === "desk" &&
                     desks.map((col) => {
+                      const isChecklistFilterDesk = checklistFilterDesks.some((d) => d.key === col.key);
+                      if (isChecklistFilterDesk) {
+                        return (
+                          <DeskChecklistFilterControl
+                            key={col.key}
+                            desk={col}
+                            filter={deskChecklistFilters[col.key] || null}
+                            onChange={(filter) => setDeskChecklistFilter(col.key, filter)}
+                            C={C}
+                          />
+                        );
+                      }
                       const DeskIcon = col.icon;
                       const active = isFilterSelected("desk", col.key);
                       return (
@@ -954,7 +1674,6 @@ export default function AdmissionOverviewPage() {
                       );
                     })}
 
-                  {/* GENDER OPTIONS */}
                   {activeCategory === "gender" &&
                     ["Male", "Female"].map((g) => {
                       const value = g.toLowerCase();
@@ -976,7 +1695,6 @@ export default function AdmissionOverviewPage() {
                       );
                     })}
 
-                  {/* HAS ARRIVED OPTIONS */}
                   {activeCategory === "arrived" &&
                     [
                       { value: "yes", label: "Remarks" },
@@ -1003,7 +1721,6 @@ export default function AdmissionOverviewPage() {
               )}
             </div>
 
-            {/* ---- status tabs ---- */}
             <div className="mb-5">
               <div
                 className="inline-flex flex-wrap rounded-2xl p-1 gap-1"
@@ -1033,268 +1750,297 @@ export default function AdmissionOverviewPage() {
               </div>
             </div>
 
-            {/* ---- table / expected list / unexpected arrivals list ---- */}
-            {visibleStudents.length === 0 ? (
-              <div className="rounded-2xl py-16 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
-                <p className="text-sm" style={{ color: C.muted }}>
-                  No students match this search, date, filter and status combination.
-                </p>
-              </div>
-            ) : statusTab === "expected" ? (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                <table className="w-full table-auto">
-                  <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
-                    <tr>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
-                        #
-                      </th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
-                        Student
-                      </th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
-                        Onboarding day
-                      </th>
-                      <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedStudents.map((student, index) => (
-                      <tr
-                        key={student.id}
-                        onClick={() => openStudentProfile(student)}
-                        className="cursor-pointer transition-colors"
-                        style={{ borderBottom: `1px solid ${C.hairline}` }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <td className="px-3 py-3.5">
-                          <span
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
-                            style={{ background: C.panel2, color: C.muted }}
-                          >
-                            {rangeStart + index}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <StudentIdentity student={student} C={C} />
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className="text-sm" style={{ color: C.text }}>
-                            {formatDate(student.expectedDate)}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5 text-right">
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed"
-                            style={{ color: C.muted, borderColor: C.hairline }}
-                          >
-                            <CircleDashed size={12} />
-                            Awaiting check-in
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : statusTab === "unexpected" ? (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                <table className="w-full table-auto">
-                  <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
-                    <tr>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
-                        #
-                      </th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
-                        Student
-                      </th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
-                        Expected day
-                      </th>
-                      <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
-                        Actual arrival
-                      </th>
-                      {/* <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
-                        Status
-                      </th> */}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginatedStudents.map((student, index) => (
-                      <tr
-                        key={student.id}
-                        onClick={() => openStudentProfile(student)}
-                        className="cursor-pointer transition-colors"
-                        style={{ borderBottom: `1px solid ${C.hairline}` }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                      >
-                        <td className="px-3 py-3.5">
-                          <span
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
-                            style={{ background: C.panel2, color: C.muted }}
-                          >
-                            {rangeStart + index}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <StudentIdentity student={student} C={C} />
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className="text-sm" style={{ color: C.text }}>
-                            {formatDate(student.expectedDate)}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3.5">
-                          <span className="text-sm font-medium" style={{ color: C.rose }}>
-                            {formatDate(student.arrivalDate)}
-                          </span>
-                        </td>
-                        {/* <td className="px-5 py-3.5 text-right">
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                            style={{ background: C.roseSoft, color: C.rose }}
-                          >
-                            <AlertTriangle size={12} />
-                            Unexpected
-                          </span>
-                        </td> */}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-                <div className="overflow-x-auto lg:overflow-x-visible">
+            <div className="relative">
+              {filtersApplying && (
+                <div
+                  className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl"
+                  style={{ background: `${C.panel}dd`, backdropFilter: "blur(1px)" }}
+                >
+                  <div
+                    className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium"
+                    style={{ background: C.panel, border: `1px solid ${C.hairline}`, color: C.brass, boxShadow: C.cardShadow }}
+                  >
+                    <Loader2 size={18} className="animate-spin" />
+                    Applying filters...
+                  </div>
+                </div>
+              )}
+
+              {visibleStudents.length === 0 ? (
+                <div className="rounded-2xl py-16 text-center" style={{ background: C.panel, border: `1px solid ${C.hairline}` }}>
+                  <p className="text-sm" style={{ color: C.muted }}>
+                    No students match this search, date, filter and status combination.
+                  </p>
+                </div>
+              ) : statusTab === "expected" ? (
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
                   <table className="w-full table-auto">
-                    <thead className="sticky top-0 z-20" style={{ background: C.panel, borderBottom: `1px solid ${C.hairline}` }}>
+                    <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
                       <tr>
                         <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
-                          #
+                          S.No.
                         </th>
-                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[260px]" style={{ color: C.muted }}>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
                           Student
                         </th>
-                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[130px]" style={{ color: C.muted }}>
-                          Progress
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                          Onboarding day
                         </th>
-
-                        {desks.map((col, i) => {
-                          const Icon = col.icon;
-                          const accent = deskAccentPalette[i % deskAccentPalette.length];
-                          const accentSoft = deskAccentSoft[i % deskAccentSoft.length];
-                          return (
-                            <th key={col.key} className="px-3 py-3.5 text-center w-[100px]">
-                              <div className="flex flex-col items-center gap-1.5">
-                                <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: accentSoft }}>
-                                  <Icon size={16} style={{ color: accent }} />
-                                </div>
-                                <span className="text-xs font-semibold" style={{ color: C.text }}>
-                                  {col.title}
-                                </span>
-                              </div>
-                            </th>
-                          );
-                        })}
-                        <th className="px-3 py-3.5 text-center w-[110px]">
-                          <div className="flex flex-col items-center gap-1.5">
-                            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: C.brassSoft }}>
-                              <Tag size={16} style={{ color: C.brass }} />
-                            </div>
-                            <span className="text-xs font-semibold" style={{ color: C.text }}>
-                              Remarks
-                            </span>
-                          </div>
+                        <th className="px-5 py-4 text-right text-xs uppercase tracking-wider w-[160px]" style={{ color: C.muted }}>
+                          Status
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedStudents.map((student, index) => {
-                        const progress = student.progress;
-                        const isComplete = progress >= 100;
-                        return (
-                          <tr
-                            key={student.id}
-                            onClick={() => openStudentProfile(student)}
-                            className="cursor-pointer transition-colors"
-                            style={{ borderBottom: `1px solid ${C.hairline}` }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                          >
-                            <td className="px-3 py-3.5">
-                              <span
-                                className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
-                                style={{ background: C.panel2, color: C.muted }}
-                              >
-                                {rangeStart + index}
-                              </span>
-                            </td>
-                            <td className="px-5 py-3.5">
-                              <StudentIdentity student={student} C={C} />
-                            </td>
-                            <td className="px-5 py-3.5">
-                              <div className="w-[120px]">
-                                <div className="flex justify-between text-xs mb-2">
-                                  <span className="font-semibold" style={{ color: isComplete ? C.green : C.text }}>
-                                    {progress}%
-                                  </span>
-                                  <span style={{ color: C.mutedSoft }}>
-                                    {student.completedCount}/{student.totalDesks}
-                                  </span>
-                                </div>
-                                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.hairlineSoft }}>
-                                  <div
-                                    className="h-1.5 rounded-full transition-all duration-300"
-                                    style={{ width: `${progress}%`, background: isComplete ? C.green : C.brass }}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                            {desks.map((col) => (
-                              <td key={col.key} className="px-3.5 py-3.5">
-                                <Cell value={student.cells[col.key]} C={C} />
-                              </td>
-                            ))}
-                            <td className="px-3.5 py-3.5">
-                              <div className="flex justify-center">
-                                {student.remarks?.trim() ? (
-                                  <span
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                                    style={{
-                                      background: C.greenSoft,
-                                      color: C.green,
-                                    }}
-                                  >
-                                    <Check size={10} />
-                                    Yes
-                                  </span>
-                                ) : (
-                                  <span
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-                                    style={{
-                                      background: C.panel2,
-                                      color: C.mutedSoft,
-                                      border: `1px solid ${C.hairline}`,
-                                    }}
-                                  >
-                                    No
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {paginatedStudents.map((student, index) => (
+                        <tr
+                          key={student.id}
+                          onClick={() => openStudentProfile(student)}
+                          className="cursor-pointer transition-colors"
+                          style={{ borderBottom: `1px solid ${C.hairline}` }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <td className="px-3 py-3.5">
+                            <span
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
+                              style={{ background: C.panel2, color: C.muted }}
+                            >
+                              {rangeStart + index}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <StudentIdentity student={student} C={C} />
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="text-sm" style={{ color: C.text }}>
+                              {formatDate(student.expectedDate)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-right">
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed"
+                              style={{ color: C.muted, borderColor: C.hairline }}
+                            >
+                              <CircleDashed size={12} />
+                              Awaiting check-in
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
-              </div>
-            )}
+              ) : statusTab === "unexpected" ? (
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                  <table className="w-full table-auto">
+                    <thead style={{ borderBottom: `1px solid ${C.hairline}` }}>
+                      <tr>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-14" style={{ color: C.muted }}>
+                          S.No.
+                        </th>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider" style={{ color: C.muted }}>
+                          Student
+                        </th>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                          Expected day
+                        </th>
+                        <th className="px-5 py-4 text-left text-xs uppercase tracking-wider w-[150px]" style={{ color: C.muted }}>
+                          Actual arrival
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedStudents.map((student, index) => (
+                        <tr
+                          key={student.id}
+                          onClick={() => openStudentProfile(student)}
+                          className="cursor-pointer transition-colors"
+                          style={{ borderBottom: `1px solid ${C.hairline}` }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = C.panel2)}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <td className="px-3 py-3.5">
+                            <span
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-medium"
+                              style={{ background: C.panel2, color: C.muted }}
+                            >
+                              {rangeStart + index}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <StudentIdentity student={student} C={C} />
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="text-sm" style={{ color: C.text }}>
+                              {formatDate(student.expectedDate)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="text-sm font-medium" style={{ color: C.rose }}>
+                              {formatDate(student.arrivalDate)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                  <div className="overflow-x-auto">
+                    <table
+                      className="table-auto"
+                      style={{ minWidth: `${644 + desks.length * 78}px`, width: "100%" }}
+                    >
+                      <thead className="sticky top-0 z-20" style={{ background: C.panel, borderBottom: `1px solid ${C.hairline}` }}>
+                        <tr>
+                          <th className="px-2 py-4 text-left text-xs uppercase tracking-wider w-9" style={{ color: C.muted }}>
+                            #
+                          </th>
+                          <th className="px-4 py-4 text-left text-xs uppercase tracking-wider w-[200px]" style={{ color: C.muted }}>
+                            Student
+                          </th>
+                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                            Expected
+                          </th>
+                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                            Arrival
+                          </th>
+                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                            Progress
+                          </th>
 
-            {/* ---- pagination (functional) ---- */}
+                          {desks.map((col, i) => {
+                            const Icon = col.icon;
+                            const accent = deskAccentPalette[i % deskAccentPalette.length];
+                            const accentSoft = deskAccentSoft[i % deskAccentSoft.length];
+                            return (
+                              <th key={col.key} className="px-2 py-3 text-center w-[78px]">
+                                <div className="flex flex-col items-center gap-1">
+                                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: accentSoft }}>
+                                    <Icon size={13} style={{ color: accent }} />
+                                  </div>
+                                  <span className="text-[12px] font-semibold leading-tight text-center" style={{ color: C.text }}>
+                                    {col.title}
+                                  </span>
+                                </div>
+                              </th>
+                            );
+                          })}
+                          <th className="px-2 py-3 text-center w-[78px]">
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: C.brassSoft }}>
+                                <Tag size={13} style={{ color: C.brass }} />
+                              </div>
+                              <span className="text-[12px] font-semibold" style={{ color: C.text }}>
+                                Remarks
+                              </span>
+                            </div>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedStudents.map((student, index) => {
+                          const progress = student.progress;
+                          const isMismatch = student.isUnexpectedArrival;
+                          return (
+                            <tr
+                              key={student.id}
+                              onClick={() => openStudentProfile(student)}
+                              className="cursor-pointer transition-colors"
+                              style={{
+                                borderBottom: `1px solid ${C.hairline}`,
+                                boxShadow: isMismatch ? `inset 0 0 0 1px ${C.rose}` : "none",
+                                background: isMismatch ? C.roseSoft : "transparent",
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = isMismatch ? C.roseSoft : C.panel2)}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = isMismatch ? C.roseSoft : "transparent")}
+                            >
+                              <td className="px-2 py-3">
+                                <span
+                                  className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium"
+                                  style={{ background: C.panel2, color: C.muted }}
+                                >
+                                  {rangeStart + index}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <StudentIdentity student={student} C={C} alert={isMismatch} />
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="text-xs" style={{ color: C.text }}>
+                                  {formatDate(student.expectedDate)}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="text-xs font-medium" style={{ color: isMismatch ? C.rose : C.text }}>
+                                  {student.arrivalDate ? formatDate(student.arrivalDate) : "—"}
+                                </span>
+                              </td>
+                             <td className="px-3 py-3">
+                                <div className="flex flex-col items-center justify-center gap-1">
+                                  <CircularProgress progress={progress} C={C} />
+
+                                  <span
+                                    className="text-[11px] font-semibold"
+                                    style={{
+                                      color:
+                                        student.completedCount === student.totalDesks
+                                          ? C.green
+                                          : C.mutedSoft,
+                                    }}
+                                  >
+                                    {student.completedCount}/{student.totalDesks}
+                                  </span>
+                                </div>
+                              </td>
+                              {desks.map((col) => {
+                                const cell = student.cells[col.key] || {};
+                                const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
+                                return (
+                                  <td key={col.key} className="px-2 py-3">
+                                    <Cell
+                                      time={cell.time}
+                                      checkedCount={cell.checkedCount}
+                                      totalCount={cell.totalCount}
+                                      C={C}
+                                      clickable={isClickable}
+                                      onClick={(e) => openDeskChecklist(student, col, e)}
+                                    />
+                                  </td>
+                                );
+                              })}
+                              <td className="px-2 py-3">
+                                <div className="flex justify-center">
+                                  {student.remarks?.trim() ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium"
+                                      style={{ background: C.greenSoft, color: C.green }}
+                                    >
+                                      <Check size={9} />
+                                      Yes
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium"
+                                      style={{ background: C.panel2, color: C.mutedSoft, border: `1px solid ${C.hairline}` }}
+                                    >
+                                      No
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {visibleStudents.length > 0 && (
               <div className="mt-5 rounded-2xl" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 px-5 py-4">
@@ -1375,22 +2121,22 @@ export default function AdmissionOverviewPage() {
           setStudentProfile(null);
         }}
         onRemarksSaved={(studentId, remarks) => {
-          setStudentProfile((prev) => ({
-            ...prev,
-            remarks,
-          }));
-
+          setStudentProfile((prev) => ({ ...prev, remarks }));
           setStudents((prev) =>
-            prev.map((student) =>
-              student.id === studentId
-                ? {
-                    ...student,
-                    remarks,
-                  }
-                : student
-            )
+            prev.map((student) => (student.id === studentId ? { ...student, remarks } : student))
           );
         }}
+        C={C}
+      />
+      <DeskChecklistModal
+        open={checklistOpen}
+        onClose={closeDeskChecklist}
+        loading={checklistLoading}
+        desk={checklistDesk}
+        student={checklistStudent}
+        items={checklistItems}
+        completionTime={checklistCompletionTime}
+        onToggleItem={handleToggleChecklistItem}
         C={C}
       />
     </div>
