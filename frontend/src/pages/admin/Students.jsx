@@ -100,7 +100,7 @@ function isCountableItem(item) {
   return item?.type !== "text";
 }
 
-function normalizeOverview(payload) {
+function normalizeOverview(payload, { assumeHasChecklist = false } = {}) {
 const desksRaw = payload?.desks || [];
   const studentsRaw = payload?.students || [];
   const checklistLogs = payload?.checklistLogs || {};
@@ -116,17 +116,20 @@ const desksRaw = payload?.desks || [];
       hasChecklist: false,
     };
   });
-    desks.forEach((desk) => {
-  const matchingLists = studentsRaw.map((s) => ({
-    studentId: s.id,
-    key: cacheKey(s.id, desk.id),
-    list: checklistLogs[cacheKey(s.id, desk.id)],
-  }));
 
-  desk.hasChecklist = matchingLists.some(
-    (m) => Array.isArray(m.list) && m.list.length > 0
-  );
-});
+  desks.forEach((desk) => {
+    if (assumeHasChecklist) {
+      // No checklist data yet on the very first paint — assume desks have
+      // checklists so cells render as clickable/pending immediately instead
+      // of flashing from non-clickable to clickable once real data arrives.
+      desk.hasChecklist = true;
+      return;
+    }
+    desk.hasChecklist = studentsRaw.some((s) => {
+      const list = checklistLogs[cacheKey(s.id, desk.id)];
+      return Array.isArray(list) && list.length > 0;
+    });
+  });
 
 
   const students = studentsRaw.map((s) => {
@@ -940,35 +943,6 @@ export default function AdmissionOverviewPage() {
     setChecklistCacheState(next);
   };
 
-  const mergeCachedCounts = (studentsList, desksList) => {
-    const cache = checklistCacheRef.current;
-    if (Object.keys(cache).length === 0) return studentsList;
-    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
-
-    return studentsList.map((s) => {
-      let nextCells = s.cells;
-      let touched = false;
-      checklistDesks.forEach((d) => {
-        const items = cache[cacheKey(s.id, d.id)];
-        if (!items) return;
-         const countable = items.filter(isCountableItem);
-          const total = countable.length;
-      const checked = countable.filter((i) => isItemMarked(i)).length;
-        const prevCell = nextCells[d.key] || {};
-        nextCells = { ...nextCells, [d.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
-        touched = true;
-      });
-      if (!touched) return s;
-      const completedCount = Object.values(nextCells).filter((c) => c.time).length;
-      return {
-        ...s,
-        cells: nextCells,
-        completedCount,
-        progress: s.totalDesks > 0 ? Math.round((completedCount / s.totalDesks) * 100) : s.progress,
-        status: computeStatus(completedCount, s.totalDesks, s.arrivalDate),
-      };
-    });
-  };
 
   const syncCellProgress = (student, desk, items) => {
     if (!student || !desk) return;
@@ -1113,38 +1087,55 @@ const loadStudents = async ({ silent = false } = {}) => {
     const res = await getStudentOverview();
     const overviewData = res.data.data;
 
-    const checklistLogs = {};
+    // Start from whatever's already cached (e.g. from a previous load).
+    const cumulativeLogs = { ...checklistCacheRef.current };
+
+    const renderFromLogs = (logs, assumeHasChecklist) => {
+      const { desks: normalizedDesks, students: normalizedStudents } = normalizeOverview(
+        { ...overviewData, checklistLogs: logs },
+        { assumeHasChecklist }
+      );
+      setDesks(normalizedDesks);
+      setStudents(normalizedStudents);
+    };
+
+    // Paint immediately: student list, names, dates, remarks, pagination
+    // all show up right away. Checklist cells render as clickable
+    // "Pending" placeholders and fill in as data streams below.
+    renderFromLogs(cumulativeLogs, true);
+    if (!silent) setLoading(false);
+
+    // Background sync of checklist logs, batched so we don't trigger
+    // hundreds of re-renders.
     const pairs = [];
     overviewData.students.forEach((student) => {
-      overviewData.desks.forEach((desk) => {
-        pairs.push({ student, desk });
-      });
+      overviewData.desks.forEach((desk) => pairs.push({ student, desk }));
     });
+
+    const FLUSH_EVERY = 24;
+    let sinceFlush = 0;
 
     await mapWithConcurrency(pairs, CHECKLIST_PREFETCH_CONCURRENCY, async ({ student, desk }) => {
       const { data } = await getStudentChecklistLogs(student.id, desk.id);
       const rows = data?.data || data || [];
-      checklistLogs[cacheKey(student.id, desk.id)] = rows;
+      cumulativeLogs[cacheKey(student.id, desk.id)] = rows;
+
+      if (++sinceFlush >= FLUSH_EVERY) {
+        sinceFlush = 0;
+        commitChecklistCache({ ...cumulativeLogs });
+        renderFromLogs(cumulativeLogs, true);
+      }
     });
 
-    // NEW: this sweep already fetched everything prefetchAllChecklists would
-    // fetch again — feed it straight into the cache so the second pass is
-    // unnecessary.
-    commitChecklistCache({ ...checklistCacheRef.current, ...checklistLogs });
+    // Final flush — all data is in now, so hasChecklist detection is accurate.
+    commitChecklistCache({ ...cumulativeLogs });
+    renderFromLogs(cumulativeLogs, false);
 
-    const { desks: normalizedDesks, students: normalizedStudents } =
-      normalizeOverview({ ...overviewData, checklistLogs });
-
-    setDesks(normalizedDesks);
-    setStudents(mergeCachedCounts(normalizedStudents, normalizedDesks));
-
-    return { desks: normalizedDesks, students: normalizedStudents };
+    return { desks, students }; // not used by caller currently, kept for compat
   } catch (err) {
     console.error(err);
     setError("Couldn't load student data. Please try again.");
     return null;
-  } finally {
-    if (!silent) setLoading(false);
   }
 };
 
