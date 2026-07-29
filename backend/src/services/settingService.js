@@ -316,9 +316,12 @@ async syncStudents(settingsId) {
 
     const data = await response.json();
 
-    const students = Array.isArray(data)
-        ? data
-        : data.data || [];
+    const students = (Array.isArray(data)
+    ? data
+    : data.data || []
+    ).filter(student =>
+        String(student.degree_type || "").toLowerCase() === "ug"
+    );
 
     let inserted = 0;
     let updated = 0;
