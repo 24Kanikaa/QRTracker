@@ -46,6 +46,7 @@ import Swal from "sweetalert2";
 import { useTheme } from "../../context/ThemeContext";
 import { GhostButton, Modal, PrimaryButton } from "./Settings";
 import { generateWorkbook } from "../../utils/exportWorkbook";
+import { useAuth } from "../../context/AuthContext";
 
 /* ============================================================
    DESK ICON MAPPING
@@ -877,7 +878,7 @@ function DeskChecklistFilterControl({ desk, filter, onChange, C }) {
 
 export default function AdmissionOverviewPage() {
   const { dark, toggleDark, C } = useTheme();
-  const user = JSON.parse(localStorage.getItem("user"));
+  const { user } = useAuth();
   const { setOpen: setSidebarOpen } = useOutletContext();
   const [students, setStudents] = useState([]);
   const [desks, setDesks] = useState([]);
