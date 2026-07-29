@@ -1850,7 +1850,7 @@ const checklistFilterDesks = useMemo(
                   </table>
                 </div>
               ) : (
-                <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+               <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
                   <div className="overflow-x-auto">
                     <table
                       className="table-auto"
@@ -1858,28 +1858,28 @@ const checklistFilterDesks = useMemo(
                     >
                       <thead className="sticky top-0 z-20" style={{ background: C.panel, borderBottom: `1px solid ${C.hairline}` }}>
                         <tr>
-                          <th className="px-2 py-4 text-left text-xs uppercase tracking-wider w-9" style={{ color: C.muted }}>
-                            #
+                          <th className="pl-4 pr-2 py-4 text-left text-xs uppercase tracking-wider w-10" style={{ color: C.muted }}>
+                            S.No.
                           </th>
-                          <th className="px-4 py-4 text-left text-xs uppercase tracking-wider w-[200px]" style={{ color: C.muted }}>
+                          <th className="pl-2 pr-4 py-4 text-left text-xs uppercase tracking-wider w-[200px]" style={{ color: C.muted }}>
                             Student
                           </th>
-                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                          <th className="px-2 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
                             Expected
                           </th>
-                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                          <th className="px-2 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
                             Arrival
                           </th>
-                          <th className="px-3 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
+                          {/* <th className="px-2 py-4 text-center text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
                             Progress
-                          </th>
+                          </th> */}
 
                           {desks.map((col, i) => {
                             const Icon = col.icon;
                             const accent = deskAccentPalette[i % deskAccentPalette.length];
                             const accentSoft = deskAccentSoft[i % deskAccentSoft.length];
                             return (
-                              <th key={col.key} className="px-2 py-3 text-center w-[78px]">
+                              <th key={col.key} className="px-1.5 py-3 text-center w-[78px]">
                                 <div className="flex flex-col items-center gap-1">
                                   <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: accentSoft }}>
                                     <Icon size={13} style={{ color: accent }} />
@@ -1891,7 +1891,7 @@ const checklistFilterDesks = useMemo(
                               </th>
                             );
                           })}
-                          <th className="px-2 py-3 text-center w-[78px]">
+                          <th className="px-1.5 py-3 text-center w-[78px]">
                             <div className="flex flex-col items-center gap-1">
                               <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: C.brassSoft }}>
                                 <Tag size={13} style={{ color: C.brass }} />
@@ -1920,7 +1920,7 @@ const checklistFilterDesks = useMemo(
                               onMouseEnter={(e) => (e.currentTarget.style.background = isMismatch ? C.roseSoft : C.panel2)}
                               onMouseLeave={(e) => (e.currentTarget.style.background = isMismatch ? C.roseSoft : "transparent")}
                             >
-                              <td className="px-2 py-3">
+                              <td className="pl-4 pr-2 py-3">
                                 <span
                                   className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium"
                                   style={{ background: C.panel2, color: C.muted }}
@@ -1928,41 +1928,37 @@ const checklistFilterDesks = useMemo(
                                   {rangeStart + index}
                                 </span>
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="pl-2 pr-4 py-3">
                                 <StudentIdentity student={student} C={C} alert={isMismatch} />
                               </td>
-                              <td className="px-3 py-3">
+                              <td className="px-2 py-3">
                                 <span className="text-xs" style={{ color: C.text }}>
                                   {formatDate(student.expectedDate)}
                                 </span>
                               </td>
-                              <td className="px-3 py-3">
+                              <td className="px-4 py-3">
                                 <span className="text-xs font-medium" style={{ color: isMismatch ? C.rose : C.text }}>
                                   {student.arrivalDate ? formatDate(student.arrivalDate) : "—"}
                                 </span>
                               </td>
-                             <td className="px-3 py-3">
+                              {/* <td className="px-2 py-3">
                                 <div className="flex flex-col items-center justify-center gap-1">
                                   <CircularProgress progress={progress} C={C} />
-
                                   <span
                                     className="text-[11px] font-semibold"
                                     style={{
-                                      color:
-                                        student.completedCount === student.totalDesks
-                                          ? C.green
-                                          : C.mutedSoft,
+                                      color: student.completedCount === student.totalDesks ? C.green : C.mutedSoft,
                                     }}
                                   >
                                     {student.completedCount}/{student.totalDesks}
                                   </span>
                                 </div>
-                              </td>
+                              </td> */}
                               {desks.map((col) => {
                                 const cell = student.cells[col.key] || {};
                                 const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
                                 return (
-                                  <td key={col.key} className="px-2 py-3">
+                                  <td key={col.key} className="px-1.5 py-3">
                                     <Cell
                                       time={cell.time}
                                       checkedCount={cell.checkedCount}
@@ -1974,7 +1970,7 @@ const checklistFilterDesks = useMemo(
                                   </td>
                                 );
                               })}
-                              <td className="px-2 py-3">
+                              <td className="px-1.5 py-3">
                                 <div className="flex justify-center">
                                   {student.remarks?.trim() ? (
                                     <span
