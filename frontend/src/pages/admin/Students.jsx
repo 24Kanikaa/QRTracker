@@ -1421,72 +1421,6 @@ const checklistFilterDesks = useMemo(
         ) : (
           <>
             <div className="rounded-2xl p-4 mb-3" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
-              {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
-                <div className="mb-4 pb-4" style={{ borderBottom: `1px solid ${C.hairline}` }}>
-                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
-                    Selected Filters
-                  </p>
-
-                  <div className="flex flex-wrap gap-2">
-                    {selectedDate !== "all" && (
-                      <span
-                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                      >
-                        {formatDate(selectedDate)}
-                        <button
-                          onClick={() => setSelectedDate("all")}
-                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                          style={{ background: C.brass, color: "#fff" }}
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    )}
-                    {activeFilters.map((f) => (
-                      <span
-                        key={`${f.category}-${f.value}`}
-                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                      >
-                        {f.label}
-                        <button
-                          onClick={() => removeFilter(f.category, f.value)}
-                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                          style={{ background: C.brass, color: "#fff" }}
-                        >
-                          <X size={10} />
-                        </button>
-                      </span>
-                    ))}
-                    {Object.entries(deskChecklistFilters).map(([deskKey, f]) => {
-                      const desk = desks.find((d) => d.key === deskKey);
-                      return (
-                        <span
-                          key={`deskchk-${deskKey}`}
-                          className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
-                          style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
-                        >
-                          {desk?.title || deskKey}: {deskChecklistFilterLabel(f)}
-                          <button
-                            onClick={() => removeDeskChecklistFilter(deskKey)}
-                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                            style={{ background: C.brass, color: "#fff" }}
-                          >
-                            <X size={10} />
-                          </button>
-                        </span>
-                      );
-                    })}
-                    {totalActiveFilterCount > 0 && (
-                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
-                        <X size={12} /> Clear all
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
@@ -1576,6 +1510,7 @@ const checklistFilterDesks = useMemo(
                   </button>
                 </div>
               </div>
+              
 
               {activeCategory && (
                 <div ref={filterBarRef} className="flex flex-wrap items-center gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
@@ -1680,6 +1615,72 @@ const checklistFilterDesks = useMemo(
                         </button>
                       );
                     })}
+                </div>
+              )}
+
+               {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
+                <div className="mb-4 pb-4 mt-4 pt-4" style={{ borderBottom: `1px solid ${C.hairline}`,borderTop: `1px solid ${C.hairline}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
+                    Selected Filters
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {selectedDate !== "all" && (
+                      <span
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {formatDate(selectedDate)}
+                        <button
+                          onClick={() => setSelectedDate("all")}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    )}
+                    {activeFilters.map((f) => (
+                      <span
+                        key={`${f.category}-${f.value}`}
+                        className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                        style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                      >
+                        {f.label}
+                        <button
+                          onClick={() => removeFilter(f.category, f.value)}
+                          className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                          style={{ background: C.brass, color: "#fff" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    {Object.entries(deskChecklistFilters).map(([deskKey, f]) => {
+                      const desk = desks.find((d) => d.key === deskKey);
+                      return (
+                        <span
+                          key={`deskchk-${deskKey}`}
+                          className="inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ background: C.brassSoft, color: C.brass, border: `1px solid ${C.brass}` }}
+                        >
+                          {desk?.title || deskKey}: {deskChecklistFilterLabel(f)}
+                          <button
+                            onClick={() => removeDeskChecklistFilter(deskKey)}
+                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                            style={{ background: C.brass, color: "#fff" }}
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {totalActiveFilterCount > 0 && (
+                      <button onClick={clearAllFilters} className="flex items-center gap-1 text-xs font-medium ml-1" style={{ color: C.muted }}>
+                        <X size={12} /> Clear all
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
