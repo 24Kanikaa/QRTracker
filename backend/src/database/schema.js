@@ -85,6 +85,7 @@ module.exports = async (db) => {
         last_name VARCHAR(100),
 
         email VARCHAR(150) UNIQUE,
+        copeBuddy VARCHAR(255) NULL DEFAULT NULL,
 
         gender ENUM('Male','Female','Other'),
 

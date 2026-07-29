@@ -490,7 +490,7 @@ await this.db.query(
             first_name,
             last_name,
             email,
-            roll_number
+            roll_number,copeBuddy
         FROM students
         WHERE email = ?
         LIMIT 1
@@ -571,6 +571,7 @@ await this.db.query(
         rollNo: student.roll_number,
         completed,
         total: journey.length,
+        copeBuddy:student.copeBuddy
       },
       journey,
     };

@@ -553,7 +553,19 @@ const yAxisMax =
                       <StatCard
                         C={C}
                         title="Arrived"
-                        stat={data.stats.arrived}
+                        stat={{
+                          ...data.stats.arrived,
+                          subtitle: (
+                           <>
+                            <div>
+                              Late arrivals: {data.stats?.arrived?.arrivedLate ?? 0}
+                            </div>
+                            <div>
+                              Early arrivals: {data.stats?.arrived?.arrivedEarly ?? 0}
+                            </div>
+                          </>
+                          ),
+                        }}
                         icon={<UserCheck size={20} />}
                         sparkColor={C.brass}
                       />

@@ -186,7 +186,7 @@ const handleScan = async (qrSlug) => {
 
                 <div>
                   <h3 className="text-xl font-bold mt-1 mb-1">
-                     Welcome to Plaksha
+                    Welcome to Plaksha
                   </h3>
 
                   <p className="text-teal-100 text-sm font-bold">
@@ -200,6 +200,14 @@ const handleScan = async (qrSlug) => {
                   >
                     Important Links
                   </button>
+                  {student?.copeBuddy?.trim() && (
+                      <p className="mt-2 text-sm text-white/90">
+                        Your COPE Buddy:{" "}
+                        <span className="font-semibold">
+                          {student.copeBuddy}
+                        </span>
+                      </p>
+                    )}
                 </div>
 
             </div>

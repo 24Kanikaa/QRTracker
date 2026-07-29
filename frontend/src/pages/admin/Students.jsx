@@ -79,17 +79,15 @@ function slugifyDeskName(deskName) {
   );
 }
 
-// ------------------------------------------------------------
-// Single source of truth for "is this checklist item marked".
-// Backend stores `checked` as a STRING ("1" for checkboxes, or
-// the raw text for text-type items) — never compare with
-// strict `=== 1` (number) or you'll silently miss everything
-// once data comes back from the DB instead of local state.
-// ------------------------------------------------------------
+
 function isItemMarked(item) {
-  if (item?.checked === null || item?.checked === undefined) return false;
-  const val = String(item.checked).trim();
-  return val !== "" && val !== "0";
+  if (item?.checked === null || item?.checked === undefined) {
+    return false;
+  }
+
+  const val = String(item.checked).trim().toLowerCase();
+
+  return val === "true" || val === "1";
 }
 
 function computeStatus(completedCount, totalDesks, arrivalDate) {
@@ -97,20 +95,39 @@ function computeStatus(completedCount, totalDesks, arrivalDate) {
   if (arrivalDate) return "IN_PROGRESS";
   return "EXPECTED";
 }
+
+function isCountableItem(item) {
+  return item?.type !== "text";
+}
+
 function normalizeOverview(payload) {
-  const desksRaw = payload?.desks || [];
+const desksRaw = payload?.desks || [];
   const studentsRaw = payload?.students || [];
   const checklistLogs = payload?.checklistLogs || {};
 
   const desks = desksRaw.map((d) => {
+    const deskId = d.id ?? d.desk_id;
     return {
       key: slugifyDeskName(d.desk_name),
       name: d.desk_name,
-      id: d.id ?? d.desk_id,
+      id: deskId,
       title: d.desk_name,
       icon: getDeskIcon(d.desk_name),
+      hasChecklist: false,
     };
   });
+    desks.forEach((desk) => {
+  const matchingLists = studentsRaw.map((s) => ({
+    studentId: s.id,
+    key: cacheKey(s.id, desk.id),
+    list: checklistLogs[cacheKey(s.id, desk.id)],
+  }));
+
+  desk.hasChecklist = matchingLists.some(
+    (m) => Array.isArray(m.list) && m.list.length > 0
+  );
+});
+
 
   const students = studentsRaw.map((s) => {
     const totalDesks = s.totalDesks ?? desks.length;
@@ -137,12 +154,9 @@ function normalizeOverview(payload) {
       const checklist =
         checklistLogs[cacheKey(s.id, col.id)] || [];
 
-      const checkedCount =
-        entry?.checkedCount ??
-        entry?.checked_count ??
-        null;
-
-      const totalCount = checklist.length;
+      const countableItems = checklist.filter(isCountableItem);
+       const totalCount = countableItems.length;
+      const checkedCount = countableItems.filter((i) => isItemMarked(i)).length;
 
       const time =
         entry &&
@@ -154,9 +168,10 @@ function normalizeOverview(payload) {
               hour12: true,
             })
           : null;
+          
 
       cells[col.key] = {
-        time,
+       time,
         checkedCount,
         totalCount,
         hasChecklist: checklist.length > 0,
@@ -242,8 +257,9 @@ async function mapWithConcurrency(items, limit, worker) {
 function DeskChecklistModal({ open, onClose, loading, desk, student, items, completionTime, onToggleItem, C }) {
   if (!open) return null;
 
-  const total = items.length;
-  const checkedCount = items.filter((i) => isItemMarked(i)).length;
+  const countableItems = items.filter((i) => i?.type !== "text");
+  const total = countableItems.length;
+ const checkedCount = countableItems.filter((i) => isItemMarked(i)).length;
   const allDone = total > 0 && checkedCount === total;
   const lastUpdatedItem = [...items]
   .filter((i) => i.checked_at)
@@ -923,7 +939,6 @@ export default function AdmissionOverviewPage() {
     checklistCacheRef.current = next;
     setChecklistCacheState(next);
   };
-  const cacheKey = (studentId, deskId) => `${studentId}:${deskId}`;
 
   const mergeCachedCounts = (studentsList, desksList) => {
     const cache = checklistCacheRef.current;
@@ -936,8 +951,9 @@ export default function AdmissionOverviewPage() {
       checklistDesks.forEach((d) => {
         const items = cache[cacheKey(s.id, d.id)];
         if (!items) return;
-        const total = items.length;
-        const checked = items.filter((i) => isItemMarked(i)).length;
+         const countable = items.filter(isCountableItem);
+          const total = countable.length;
+      const checked = countable.filter((i) => isItemMarked(i)).length;
         const prevCell = nextCells[d.key] || {};
         nextCells = { ...nextCells, [d.key]: { ...prevCell, checkedCount: checked, totalCount: total } };
         touched = true;
@@ -956,8 +972,9 @@ export default function AdmissionOverviewPage() {
 
   const syncCellProgress = (student, desk, items) => {
     if (!student || !desk) return;
-    const total = items.length;
-    const checked = items.filter((i) => isItemMarked(i)).length;
+  const countable = items.filter(isCountableItem);
+  const total = countable.length;
+  const checked = countable.filter((i) => isItemMarked(i)).length;
     setStudents((prev) =>
       prev.map((s) => {
         if (s.id !== student.id) return s;
@@ -975,32 +992,6 @@ export default function AdmissionOverviewPage() {
     );
   };
 
-  const CHECKLIST_PREFETCH_CONCURRENCY = 6;
-  const prefetchAllChecklists = async (studentsList, desksList) => {
-    const checklistDesks = desksList.filter((d) => d.hasChecklist !== false);
-    if (checklistDesks.length === 0 || studentsList.length === 0) return;
-
-    const pairs = [];
-    studentsList.forEach((s) => {
-      checklistDesks.forEach((d) => pairs.push({ student: s, desk: d }));
-    });
-
-    const fetched = { ...checklistCacheRef.current };
-
-    await mapWithConcurrency(
-      pairs,
-      CHECKLIST_PREFETCH_CONCURRENCY,
-      async ({ student, desk }) => {
-        const { data } = await getStudentChecklistLogs(student.id, desk.id);
-
-        const rows = data?.data || data || [];
-
-        fetched[cacheKey(student.id, desk.id)] = rows;
-      }
-    );
-    commitChecklistCache(fetched);
-    setStudents((prev) => mergeCachedCounts(prev, desksList));
-  };
 
   const openDeskChecklist = async (student, desk, e) => {
     e.stopPropagation();
@@ -1113,55 +1104,41 @@ export default function AdmissionOverviewPage() {
 
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
-
+const CHECKLIST_PREFETCH_CONCURRENCY = 6;
 const loadStudents = async ({ silent = false } = {}) => {
   try {
     if (!silent) setLoading(true);
     setError(null);
 
     const res = await getStudentOverview();
-
     const overviewData = res.data.data;
 
-    // create checklist cache
     const checklistLogs = {};
-
     const pairs = [];
-
     overviewData.students.forEach((student) => {
       overviewData.desks.forEach((desk) => {
         pairs.push({ student, desk });
       });
     });
 
-    await mapWithConcurrency(
-      pairs,
-      CHECKLIST_PREFETCH_CONCURRENCY,
-      async ({ student, desk }) => {
-        const { data } = await getStudentChecklistLogs(student.id, desk.id);
+    await mapWithConcurrency(pairs, CHECKLIST_PREFETCH_CONCURRENCY, async ({ student, desk }) => {
+      const { data } = await getStudentChecklistLogs(student.id, desk.id);
+      const rows = data?.data || data || [];
+      checklistLogs[cacheKey(student.id, desk.id)] = rows;
+    });
 
-        const rows = data?.data || data || [];
-
-        checklistLogs[cacheKey(student.id, desk.id)] = rows;
-      }
-    );
+    // NEW: this sweep already fetched everything prefetchAllChecklists would
+    // fetch again — feed it straight into the cache so the second pass is
+    // unnecessary.
+    commitChecklistCache({ ...checklistCacheRef.current, ...checklistLogs });
 
     const { desks: normalizedDesks, students: normalizedStudents } =
-      normalizeOverview({
-        ...overviewData,
-        checklistLogs,
-      });
+      normalizeOverview({ ...overviewData, checklistLogs });
 
     setDesks(normalizedDesks);
-    setStudents(
-      mergeCachedCounts(normalizedStudents, normalizedDesks)
-    );
+    setStudents(mergeCachedCounts(normalizedStudents, normalizedDesks));
 
-    return {
-      desks: normalizedDesks,
-      students: normalizedStudents,
-    };
-
+    return { desks: normalizedDesks, students: normalizedStudents };
   } catch (err) {
     console.error(err);
     setError("Couldn't load student data. Please try again.");
@@ -1172,12 +1149,7 @@ const loadStudents = async ({ silent = false } = {}) => {
 };
 
   useEffect(() => {
-    (async () => {
-      const result = await loadStudents();
-      if (result) {
-        prefetchAllChecklists(result.students, result.desks);
-      }
-    })();
+    loadStudents();
   }, []);
 
   useEffect(() => {

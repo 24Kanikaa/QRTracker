@@ -413,19 +413,51 @@ class DashboardService {
 // ARRIVED
 // -----------------------------------------------------
 
-const [[arrivedRow]] = await this.db.query(`
+// -----------------------------------------------------
+// ARRIVED
+// -----------------------------------------------------
 
+const [[arrivedRow]] = await this.db.query(`
     SELECT
-        COUNT(*) AS arrived
+        SUM(
+            CASE
+                WHEN DATE(arrival_date) = DATE(expected_date)
+                THEN 1
+                ELSE 0
+            END
+        ) AS arrived,
+
+        SUM(
+            CASE
+                WHEN DATE(arrival_date) < DATE(expected_date)
+                THEN 1
+                ELSE 0
+            END
+        ) AS arrivedEarly,
+
+        SUM(
+            CASE
+                WHEN DATE(arrival_date) > DATE(expected_date)
+                THEN 1
+                ELSE 0
+            END
+        ) AS arrivedLate
 
     FROM students
 
-    WHERE DATE(arrival_date) = ?
+    WHERE DATE(expected_date) = ?
+      AND arrival_date IS NOT NULL
 
 `, [date]);
 
-const arrived =
-    Number(arrivedRow.arrived || 0);
+const arrived = Number(arrivedRow.arrived || 0);
+const arrivedEarly = Number(arrivedRow.arrivedEarly || 0);
+const arrivedLate = Number(arrivedRow.arrivedLate || 0);
+
+const totalArrived =
+    arrived +
+    arrivedEarly +
+    arrivedLate;
 
 
 // -----------------------------------------------------
@@ -474,9 +506,9 @@ const notExpected =
 
 const inProgress =
     Math.max(
-        arrived - completed,
+        totalArrived - completed,
         0
-    ); 
+    );
 
     // -----------------------------------------------------
     // ARRIVAL FLOW
@@ -684,11 +716,15 @@ return {
 
     arrived: {
 
-        value: arrived,
+    value: totalArrived,
 
-        subtitle: "Arrived today"
+    subtitle: "Students arrived",
 
-    },
+    arrived,
+    arrivedEarly,
+    arrivedLate
+
+},
 
     notArrived: {
 
