@@ -36,7 +36,6 @@ async function initializeDatabase() {
         queueLimit: 0
     });
      const conn = await pool.getConnection();
-    await conn.query("SET time_zone = '+05:30'");
     conn.release();
 
     //console.log("Pool created");

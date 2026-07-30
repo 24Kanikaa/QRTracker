@@ -521,7 +521,7 @@ const handleScan = async (qrSlug) => {
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
               </a>
-              <a
+              {/* <a
                 href="#"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -536,7 +536,7 @@ const handleScan = async (qrSlug) => {
                   </p>
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
-              </a>
+              </a> */}
 
               <a
                 href=" https://media.plaksha.edu.in/Academic_Calendar_2026-27.webp"
