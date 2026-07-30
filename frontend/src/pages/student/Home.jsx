@@ -75,6 +75,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showLinks, setShowLinks] = useState(false);
+  const [openCope, setOpenCope] = useState(false);
  const { user,logout } = useAuth();
   const fetchJourney = useCallback(async () => {
     const email = user?.email;
@@ -198,16 +199,25 @@ const handleScan = async (qrSlug) => {
                     onClick={() => setShowLinks(true)}
                     className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-white/90 hover:text-white underline underline-offset-4 transition"
                   >
-                    Important Links
+                    Useful Links
                   </button>
                   {student?.copeBuddy?.trim() && (
-                      <p className="mt-2 text-sm text-white/90">
-                        Your COPE Buddy:{" "}
-                        <span className="font-semibold">
-                          {student.copeBuddy}
-                        </span>
-                      </p>
-                    )}
+                  <p className="mt-2 text-sm text-white/90">
+                    Your{" "}
+                    <button
+                      type="button"
+                      onClick={() => setOpenCope(true)}
+                      className="font-semibold underline underline-offset-2 hover:text-white transition"
+                    >
+                      COPE 
+                    </button>
+                     {" "}Buddy
+                    :{" "}
+                    <span className="font-semibold">
+                      {student.copeBuddy}
+                    </span>
+                  </p>
+                )}
                 </div>
 
             </div>
@@ -349,7 +359,84 @@ const handleScan = async (qrSlug) => {
         </div>
 
       </div>
+        {openCope && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl overflow-hidden">
 
+              {/* Header */}
+              <div className="flex items-start justify-between border-b px-6 py-5">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">
+                  Counselling Outreach and Peer Empowerment (COPE)
+                  </h2>
+                </div>
+
+                <button
+                  onClick={() => setOpenCope(false)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="px-6 py-5 space-y-4">
+
+                <div className="rounded-2xl bg-teal-50 border border-teal-100 p-4">
+                  <p className="text-sm leading-6 text-slate-700">
+                    <strong>Starting college is exciting</strong>—and it's completely
+                    normal to have questions along the way.
+                  </p>
+
+                  <p className="mt-3 text-sm leading-6 text-slate-700">
+                    That's why every incoming student is paired with a{" "}
+                    <strong>COPE Buddy</strong> (
+                    <span className="font-medium">
+                      Counselling Outreach and Peer Empowerment
+                    </span>
+                    ).
+                  </p>
+
+                  <p className="mt-3 text-sm leading-6 text-slate-700">
+                    Your COPE Buddy is a trained senior student who has already been
+                    through the same journey and is here to help with:
+                  </p>
+
+                  <ul className="mt-3 space-y-2 text-sm text-slate-700">
+                    <li>• Settling into campus life</li>
+                    <li>• Hostel and daily living questions</li>
+                    <li>• Making friends and finding communities</li>
+                    <li>• Navigating your first few weeks at Plaksha</li>
+                  </ul>
+
+                  <p className="mt-4 text-sm font-medium text-teal-700">
+                    Sometimes, knowing that someone is there for you can make all the
+                    difference. 
+                  </p>
+                </div>
+
+                {student?.copeBuddy?.trim() && (
+                  <div className="rounded-xl border border-slate-200 p-4">
+                    <p className="text-xs uppercase tracking-wide text-slate-500">
+                      Your COPE Buddy
+                    </p>
+
+                    <p className="mt-1 text-lg font-semibold text-slate-900">
+                      {student.copeBuddy}
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setOpenCope(false)}
+                  className="w-full rounded-xl bg-teal-600 py-3 font-medium text-white transition hover:bg-teal-700"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       {/* important links div */}
       {showLinks && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -357,25 +444,33 @@ const handleScan = async (qrSlug) => {
 
             <div className="flex items-center justify-between px-6 py-5 border-b">
               <div>
+              
                 <h2 className="text-lg font-bold text-slate-900">
-                  Important Links
+                  Useful Links
                 </h2>
-                <p className="text-sm text-slate-500">
-                  Quick access to student resources
+                
+                {/* <p className="text-sm text-teal-700  mt-2">
+                  Starting college is an exciting time, and it can also feel a little overwhelming. New experiences, new people, and a new environment often bring up many questions.
                 </p>
+                <p className="text-sm text-teal-700  mt-2">That's where COPE (Counselling Outreach and Peer Empowerment) comes in. Every incoming student is paired with a COPE Buddy, a trained senior student who has been through the same journey and is there to help with campus life, hostel questions, making friends, or simply to be someone you can reach out to.
+                  </p>
+                  <p className="text-sm text-teal-700  mt-2">Sometimes, knowing that someone is there for you can make all the difference.</p>
+                 <p className="text-sm text-slate-900 mt-3">
+                 Following are some useful links for your reference:
+                </p> */}
               </div>
-
-              <button
+                <button
                 onClick={() => setShowLinks(false)}
                 className="w-9 h-9 rounded-full hover:bg-slate-100 flex items-center justify-center"
-              >
-                <X size={18} />
-              </button>
+                  >
+                 <X size={18} />
+                  </button>
+               
+             
             </div>
 
             <div className="p-5 space-y-3">
-
-              <a
+              {/* <a
                 href="#"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -383,15 +478,49 @@ const handleScan = async (qrSlug) => {
               >
                 <div>
                   <p className="font-semibold text-slate-900">
-                    Academic Calendar
+                    Campus Map
                   </p>
                   <p className="text-xs text-slate-500">
-                    Semester schedule & holidays
+                    Navigate the campus easily
+                  </p>
+                </div>
+                <ExternalLink size={18} className="text-slate-400" />
+              </a> */}
+              <a
+                href="https://plakshauniversity1-my.sharepoint.com/:x:/g/personal/anmol_singh_plaksha_edu_in/IQCZn9GUueNETqfdP5TsWf66AUpbsBj6IJrByqaEXC6AC_Y?e=SQ46rq&wdExp=TEAMS-TREATMENT&web=1"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
+              >
+                <div>
+                <p className="font-semibold text-slate-900">
+                    Onboarding Schedule{" "}
+                    <span className="text-xs font-medium text-slate-600">
+                      (July 31<sup>st</sup> to Aug 2<sup>nd</sup>)
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Onboarding Schedule
                   </p>
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
               </a>
-
+              <a
+                href="https://plakshauniversity1-my.sharepoint.com/personal/kanika_kainthla_plaksha_edu_in/Documents/Attachments/Orientation%20Schedule%20-%20Class%20of%202030.pdf?web=1"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    Orientation Schedule <span className="text-xs font-medium text-slate-600">(Aug 3<sup>rd</sup> to Aug 5<sup>th</sup>)</span>
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Orientation Schedule
+                  </p>
+                </div>
+                <ExternalLink size={18} className="text-slate-400" />
+              </a>
               <a
                 href="#"
                 target="_blank"
@@ -410,21 +539,25 @@ const handleScan = async (qrSlug) => {
               </a>
 
               <a
-                href="#"
+                href=" https://media.plaksha.edu.in/Academic_Calendar_2026-27.webp"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
               >
                 <div>
                   <p className="font-semibold text-slate-900">
-                    Campus Map
+                    Academic Calendar
                   </p>
                   <p className="text-xs text-slate-500">
-                    Navigate the campus easily
+                    Semester schedule & holidays
                   </p>
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
               </a>
+
+              
+
+              
 
             </div>
           </div>
