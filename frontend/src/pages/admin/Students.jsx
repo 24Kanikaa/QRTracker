@@ -1167,7 +1167,6 @@ export default function AdmissionOverviewPage() {
     () => visibleStudents.slice((safePage - 1) * pageSize, safePage * pageSize),
     [visibleStudents, safePage]
   );
-console.log(paginatedStudents);
   const pageNumbers = getPageNumbers(safePage, totalPages);
   const rangeStart = visibleStudents.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const rangeEnd = Math.min(safePage * pageSize, visibleStudents.length);
@@ -1808,7 +1807,6 @@ console.log(paginatedStudents);
                               </td>
                               {desks.map((col) => {
                                 const cell = student.cells[col.key] || {};
-                                console.log("kkk"+cell.time);
                                 const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
                                 return (
                                   <td key={col.key} className="px-1.5 py-3">
