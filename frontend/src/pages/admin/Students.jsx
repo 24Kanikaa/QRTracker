@@ -80,7 +80,6 @@ function slugifyDeskName(deskName) {
   );
 }
 
-
 function isItemMarked(item) {
   if (item?.checked === null || item?.checked === undefined) {
     return false;
@@ -101,85 +100,45 @@ function isCountableItem(item) {
   return item?.type !== "text";
 }
 
-function normalizeOverview(payload, { assumeHasChecklist = false } = {}) {
-const desksRaw = payload?.desks || [];
+// The backend (getStudents) now computes, per desk, hasChecklist and the
+// checked/total counts for each student directly in SQL. normalizeOverview
+// is purely a reshape step — no counting or derivation happens here.
+function normalizeOverview(payload) {
+  const desksRaw = payload?.desks || [];
   const studentsRaw = payload?.students || [];
-  const checklistLogs = payload?.checklistLogs || {};
 
-  const desks = desksRaw.map((d) => {
-    const deskId = d.id ?? d.desk_id;
-    return {
-      key: slugifyDeskName(d.desk_name),
-      name: d.desk_name,
-      id: deskId,
-      title: d.desk_name,
-      icon: getDeskIcon(d.desk_name),
-      hasChecklist: false,
-    };
-  });
-
-  desks.forEach((desk) => {
-    if (assumeHasChecklist) {
-      // No checklist data yet on the very first paint — assume desks have
-      // checklists so cells render as clickable/pending immediately instead
-      // of flashing from non-clickable to clickable once real data arrives.
-      desk.hasChecklist = true;
-      return;
-    }
-    desk.hasChecklist = studentsRaw.some((s) => {
-      const list = checklistLogs[cacheKey(s.id, desk.id)];
-      return Array.isArray(list) && list.length > 0;
-    });
-  });
-
+  const desks = desksRaw.map((d) => ({
+    key: slugifyDeskName(d.desk_name),
+    name: d.desk_name,
+    id: d.id,
+    title: d.desk_name,
+    icon: getDeskIcon(d.desk_name),
+    hasChecklist: Boolean(d.hasChecklist),
+  }));
 
   const students = studentsRaw.map((s) => {
     const totalDesks = s.totalDesks ?? desks.length;
     const completedCount = s.completedCount ?? 0;
     const arrivalDate = s.arrivalDate;
-
-    const status = computeStatus(
-      completedCount,
-      totalDesks,
-      arrivalDate
-    );
-
-    const progress =
-      totalDesks > 0
-        ? Math.round((completedCount / totalDesks) * 100)
-        : 0;
+    const status = computeStatus(completedCount, totalDesks, arrivalDate);
+    const progress = totalDesks > 0 ? Math.round((completedCount / totalDesks) * 100) : 0;
 
     const cells = {};
-
     desks.forEach((col) => {
-      const entry = s.desks?.[col.name];
-
-      // get checklist for this student + desk
-      const checklist =
-        checklistLogs[cacheKey(s.id, col.id)] || [];
-
-      const countableItems = checklist.filter(isCountableItem);
-       const totalCount = countableItems.length;
-      const checkedCount = countableItems.filter((i) => isItemMarked(i)).length;
-
+      const entry = s.desks?.[col.name] || {};
       const time =
-        entry &&
-        entry.status === "completed" &&
-        entry.time
+        entry.status === "completed" && entry.time
           ? new Date(entry.time).toLocaleTimeString("en-US", {
               hour: "numeric",
               minute: "2-digit",
               hour12: true,
             })
           : null;
-          
 
       cells[col.key] = {
-       time,
-        checkedCount,
-        totalCount,
-        hasChecklist: checklist.length > 0,
-        checklist,
+        time,
+        checkedCount: entry.checkedCount ?? 0,
+        totalCount: entry.totalCount ?? 0,
       };
     });
 
@@ -207,6 +166,7 @@ const desksRaw = payload?.desks || [];
 
   return { desks, students };
 }
+
 function formatDate(value) {
   if (!value || value === "all") return value === "all" ? "All dates" : "—";
   const d = new Date(value);
@@ -228,49 +188,16 @@ function getPageNumbers(current, total) {
   return result;
 }
 
-function downloadCSV(rows, header, filename) {
-  const csv = [header, ...rows]
-    .map((r) => r.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-async function mapWithConcurrency(items, limit, worker) {
-  let cursor = 0;
-  async function run() {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      try {
-        await worker(items[idx], idx);
-      } catch (err) {
-        // leave this pair uncached; its cell just falls back to "Pending"
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
-}
-
 function DeskChecklistModal({ open, onClose, loading, desk, student, items, completionTime, onToggleItem, C }) {
   if (!open) return null;
 
   const countableItems = items.filter((i) => i?.type !== "text");
   const total = countableItems.length;
- const checkedCount = countableItems.filter((i) => isItemMarked(i)).length;
+  const checkedCount = countableItems.filter((i) => isItemMarked(i)).length;
   const allDone = total > 0 && checkedCount === total;
   const lastUpdatedItem = [...items]
-  .filter((i) => i.checked_at)
-  .sort(
-    (a, b) =>
-      new Date(b.checked_at) - new Date(a.checked_at)
-  )[0];
+    .filter((i) => i.checked_at)
+    .sort((a, b) => new Date(b.checked_at) - new Date(a.checked_at))[0];
 
   return (
     <Modal title={`${desk?.title || "Desk"} Checklist — ${student?.name || ""}`} width={640} onClose={onClose} C={C}>
@@ -293,40 +220,35 @@ function DeskChecklistModal({ open, onClose, loading, desk, student, items, comp
             }}
           >
             <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              {allDone ? (
-                <CheckCircle2 size={16} style={{ color: C.green }} />
-              ) : (
-                <Clock3 size={16} style={{ color: C.brass }} />
-              )}
+              <div className="flex items-center gap-2">
+                {allDone ? (
+                  <CheckCircle2 size={16} style={{ color: C.green }} />
+                ) : (
+                  <Clock3 size={16} style={{ color: C.brass }} />
+                )}
 
-              <span
-                className="text-sm font-semibold"
-                style={{ color: allDone ? C.green : C.text }}
-              >
-                {allDone
-                  ? completionTime
-                    ? `Completed at ${completionTime}`
-                    : "All items verified"
-                  : `${checkedCount}/${total} items verified`}
-              </span>
-            </div>
-
-            {lastUpdatedItem && (
-              <div
-                className="text-xs flex items-center gap-1"
-                style={{ color: C.muted }}
-              >
-                <User size={12} />
-                <span>
-                  Last updated by{" "}
-                  <strong style={{ color: C.text }}>
-                    {lastUpdatedItem.checked_by_name}
-                  </strong>
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: allDone ? C.green : C.text }}
+                >
+                  {allDone
+                    ? completionTime
+                      ? `Completed at ${completionTime}`
+                      : "All items verified"
+                    : `${checkedCount}/${total} items verified`}
                 </span>
               </div>
-            )}
-          </div>
+
+              {lastUpdatedItem && (
+                <div className="text-xs flex items-center gap-1" style={{ color: C.muted }}>
+                  <User size={12} />
+                  <span>
+                    Last updated by{" "}
+                    <strong style={{ color: C.text }}>{lastUpdatedItem.checked_by_name}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
             {!allDone && (
               <span className="text-xs font-medium" style={{ color: C.muted }}>
                 {total - checkedCount} remaining
@@ -372,7 +294,6 @@ function DeskChecklistModal({ open, onClose, loading, desk, student, items, comp
                             className="w-5 h-5 rounded cursor-pointer"
                             style={{ accentColor: C.green }}
                           />
-                          
                         )}
                       </span>
                       <div className="flex-1 min-w-0">
@@ -408,10 +329,7 @@ function TextChecklistRow({ item, isSaving, onSave, C }) {
 
   return (
     <div>
-      <label
-        className="block text-sm font-medium mb-2"
-        style={{ color: C.text }}
-      >
+      <label className="block text-sm font-medium mb-2" style={{ color: C.text }}>
         {item.description}
       </label>
 
@@ -461,12 +379,12 @@ function TextChecklistRow({ item, isSaving, onSave, C }) {
 }
 
 function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) {
+  const [hovered, setHovered] = useState(false);
   const hasCounts = typeof totalCount === "number" && totalCount > 0;
   const hasVerified = hasCounts && (checkedCount ?? 0) > 0;
+  const isCompleted = hasCounts && totalCount > 0 && checkedCount === totalCount;
 
   let content;
-
-  const isCompleted = hasCounts && totalCount > 0 && checkedCount === totalCount;
 
   if (time) {
     content = (
@@ -500,7 +418,24 @@ function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) 
         </span>
       </span>
     );
+  } else if (clickable) {
+    // Pending, but actionable — give it a solid border + hover feedback
+    // so it reads as clickable rather than a plain empty state.
+    content = (
+      <span
+        className="inline-flex items-center px-2.5 py-1 rounded-full border whitespace-nowrap transition-all duration-150"
+        style={{
+          color: hovered ? C.brass : C.muted,
+          borderColor: hovered ? C.brass : C.hairline,
+          background: hovered ? C.brassSoft : C.panel2,
+          boxShadow: hovered ? C.cardShadow : "none",
+        }}
+      >
+        <span className="text-xs font-medium whitespace-nowrap">Pending</span>
+      </span>
+    );
   } else {
+    // Not clickable — keep it quiet/dashed, no hover affordance
     content = (
       <span
         className="px-2 py-1 rounded-full text-xs font-medium border border-dashed whitespace-nowrap"
@@ -517,7 +452,13 @@ function Cell({ time, checkedCount, totalCount, C, onClick, clickable = true }) 
 
   return (
     <div className="flex justify-center">
-      <button onClick={onClick} className="transition-transform hover:scale-105" title="View checklist details">
+      <button
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="transition-transform hover:scale-105"
+        title="View checklist details"
+      >
         {content}
       </button>
     </div>
@@ -548,39 +489,6 @@ function StudentIdentity({ student, C, alert = false }) {
           {student.email}
         </p>
       </div>
-    </div>
-  );
-}
-
-function CircularProgress({ progress, C, size = 36, stroke = 4 }) {
-  const pct = Math.max(0, Math.min(100, progress));
-  const isComplete = pct >= 100;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (pct / 100) * circumference;
-  return (
-    <div className="relative inline-flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={C.hairlineSoft} strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={isComplete ? C.green : C.brass}
-          strokeWidth={stroke}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 300ms ease" }}
-        />
-      </svg>
-      <span
-        className="absolute font-bold"
-        style={{ fontSize: size <= 36 ? 11 : 12, color: isComplete ? C.green : C.text }}
-      >
-        {pct}%
-      </span>
     </div>
   );
 }
@@ -937,6 +845,10 @@ export default function AdmissionOverviewPage() {
   const [checklistDesk, setChecklistDesk] = useState(null);
   const [checklistStudent, setChecklistStudent] = useState(null);
 
+  // Cache of fetched checklist item lists, keyed by `${studentId}_${deskId}`.
+  // Populated lazily on demand when a user opens a desk's checklist modal —
+  // there's no longer any background prefetch, since the overview endpoint
+  // already returns accurate per-desk counts and hasChecklist flags.
   const [, setChecklistCacheState] = useState({});
   const checklistCacheRef = useRef({});
   const commitChecklistCache = (next) => {
@@ -944,12 +856,11 @@ export default function AdmissionOverviewPage() {
     setChecklistCacheState(next);
   };
 
-
   const syncCellProgress = (student, desk, items) => {
     if (!student || !desk) return;
-  const countable = items.filter(isCountableItem);
-  const total = countable.length;
-  const checked = countable.filter((i) => isItemMarked(i)).length;
+    const countable = items.filter(isCountableItem);
+    const total = countable.length;
+    const checked = countable.filter((i) => isItemMarked(i)).length;
     setStudents((prev) =>
       prev.map((s) => {
         if (s.id !== student.id) return s;
@@ -966,7 +877,6 @@ export default function AdmissionOverviewPage() {
       })
     );
   };
-
 
   const openDeskChecklist = async (student, desk, e) => {
     e.stopPropagation();
@@ -987,7 +897,6 @@ export default function AdmissionOverviewPage() {
       const { data } = await getStudentChecklistLogs(student.id, desk.id);
       const rows = data?.data || data || [];
       setChecklistItems(rows);
-      
       commitChecklistCache({ ...checklistCacheRef.current, [key]: rows });
       syncCellProgress(student, desk, rows);
     } catch (err) {
@@ -1079,66 +988,25 @@ export default function AdmissionOverviewPage() {
 
   const deskAccentPalette = [C.brass, C.rose, C.green, C.amber];
   const deskAccentSoft = [C.brassSoft, C.roseSoft, C.greenSoft, C.amberSoft];
-const CHECKLIST_PREFETCH_CONCURRENCY = 6;
-const loadStudents = async ({ silent = false } = {}) => {
-  try {
-    if (!silent) setLoading(true);
-    setError(null);
 
-    const res = await getStudentOverview();
-    const overviewData = res.data.data;
+  const loadStudents = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) setLoading(true);
+      setError(null);
 
-    // Start from whatever's already cached (e.g. from a previous load).
-    const cumulativeLogs = { ...checklistCacheRef.current };
+      const res = await getStudentOverview();
+      const overviewData = res.data.data;
 
-    const renderFromLogs = (logs, assumeHasChecklist) => {
-      const { desks: normalizedDesks, students: normalizedStudents } = normalizeOverview(
-        { ...overviewData, checklistLogs: logs },
-        { assumeHasChecklist }
-      );
+      const { desks: normalizedDesks, students: normalizedStudents } = normalizeOverview(overviewData);
       setDesks(normalizedDesks);
       setStudents(normalizedStudents);
-    };
-
-    // Paint immediately: student list, names, dates, remarks, pagination
-    // all show up right away. Checklist cells render as clickable
-    // "Pending" placeholders and fill in as data streams below.
-    renderFromLogs(cumulativeLogs, true);
-    if (!silent) setLoading(false);
-
-    // Background sync of checklist logs, batched so we don't trigger
-    // hundreds of re-renders.
-    const pairs = [];
-    overviewData.students.forEach((student) => {
-      overviewData.desks.forEach((desk) => pairs.push({ student, desk }));
-    });
-
-    const FLUSH_EVERY = 24;
-    let sinceFlush = 0;
-
-    await mapWithConcurrency(pairs, CHECKLIST_PREFETCH_CONCURRENCY, async ({ student, desk }) => {
-      const { data } = await getStudentChecklistLogs(student.id, desk.id);
-      const rows = data?.data || data || [];
-      cumulativeLogs[cacheKey(student.id, desk.id)] = rows;
-
-      if (++sinceFlush >= FLUSH_EVERY) {
-        sinceFlush = 0;
-        commitChecklistCache({ ...cumulativeLogs });
-        renderFromLogs(cumulativeLogs, true);
-      }
-    });
-
-    // Final flush — all data is in now, so hasChecklist detection is accurate.
-    commitChecklistCache({ ...cumulativeLogs });
-    renderFromLogs(cumulativeLogs, false);
-
-    return { desks, students }; // not used by caller currently, kept for compat
-  } catch (err) {
-    console.error(err);
-    setError("Couldn't load student data. Please try again.");
-    return null;
-  }
-};
+    } catch (err) {
+      console.error(err);
+      setError("Couldn't load student data. Please try again.");
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadStudents();
@@ -1299,6 +1167,7 @@ const loadStudents = async ({ silent = false } = {}) => {
     () => visibleStudents.slice((safePage - 1) * pageSize, safePage * pageSize),
     [visibleStudents, safePage]
   );
+
   const pageNumbers = getPageNumbers(safePage, totalPages);
   const rangeStart = visibleStudents.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const rangeEnd = Math.min(safePage * pageSize, visibleStudents.length);
@@ -1311,31 +1180,30 @@ const loadStudents = async ({ silent = false } = {}) => {
     { key: "unexpected", label: "Unexpected Arrivals", icon: AlertTriangle, count: counts.unexpected },
   ];
 
-const handleExport = async () => {
+  const handleExport = async () => {
     setExportLoading(true);
     try {
-        const { data } = await exportReport({
-            date: selectedDate,
-            status: statusTab
-        });
-        console.log(data);
-       const today = new Date().toISOString().split("T")[0];
+      const { data } = await exportReport({
+        date: selectedDate,
+        status: statusTab,
+      });
+      const today = new Date().toISOString().split("T")[0];
 
-      generateWorkbook(
-        data.data,
-        `Onboarding_Report_${today}.xlsx`
-      );
+      generateWorkbook(data.data, `Onboarding_Report_${today}.xlsx`);
     } catch (err) {
-        console.error(err);
+      console.error(err);
     } finally {
-        setExportLoading(false);
+      setExportLoading(false);
     }
-};
+  };
 
-const checklistFilterDesks = useMemo(
-  () => desks.filter((d) => d.hasChecklist !== false),
-  [desks]
-);
+  // Backend's hasChecklist flag is already authoritative (derived from
+  // total_item_count in the SQL), so no client-side "is sync still running"
+  // fallback is needed anymore.
+  const checklistFilterDesks = useMemo(
+    () => desks.filter((d) => d.hasChecklist !== false),
+    [desks]
+  );
 
   const filterCategories = [
     { key: "daywise", label: "Daywise", icon: Calendar },
@@ -1511,7 +1379,6 @@ const checklistFilterDesks = useMemo(
                   </button>
                 </div>
               </div>
-              
 
               {activeCategory && (
                 <div ref={filterBarRef} className="flex flex-wrap items-center gap-2 mt-4 pt-4" style={{ borderTop: `1px solid ${C.hairline}` }}>
@@ -1619,8 +1486,8 @@ const checklistFilterDesks = useMemo(
                 </div>
               )}
 
-               {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
-                <div className="mb-4 pb-4 mt-4 pt-4" style={{ borderBottom: `1px solid ${C.hairline}`,borderTop: `1px solid ${C.hairline}` }}>
+              {(activeFilters.length > 0 || selectedDate !== "all" || Object.keys(deskChecklistFilters).length > 0) && (
+                <div className="mb-4 pb-4 mt-4 pt-4" style={{ borderBottom: `1px solid ${C.hairline}`, borderTop: `1px solid ${C.hairline}` }}>
                   <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.brass }}>
                     Selected Filters
                   </p>
@@ -1852,7 +1719,7 @@ const checklistFilterDesks = useMemo(
                   </table>
                 </div>
               ) : (
-               <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
+                <div className="rounded-2xl overflow-hidden" style={{ background: C.panel, border: `1px solid ${C.hairline}`, boxShadow: C.cardShadow }}>
                   <div className="overflow-x-auto">
                     <table
                       className="table-auto"
@@ -1872,9 +1739,6 @@ const checklistFilterDesks = useMemo(
                           <th className="px-2 py-4 text-left text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
                             Arrival
                           </th>
-                          {/* <th className="px-2 py-4 text-center text-xs uppercase tracking-wider w-[70px]" style={{ color: C.muted }}>
-                            Progress
-                          </th> */}
 
                           {desks.map((col, i) => {
                             const Icon = col.icon;
@@ -1907,7 +1771,6 @@ const checklistFilterDesks = useMemo(
                       </thead>
                       <tbody>
                         {paginatedStudents.map((student, index) => {
-                          const progress = student.progress;
                           const isMismatch = student.isUnexpectedArrival;
                           return (
                             <tr
@@ -1943,19 +1806,6 @@ const checklistFilterDesks = useMemo(
                                   {student.arrivalDate ? formatDate(student.arrivalDate) : "—"}
                                 </span>
                               </td>
-                              {/* <td className="px-2 py-3">
-                                <div className="flex flex-col items-center justify-center gap-1">
-                                  <CircularProgress progress={progress} C={C} />
-                                  <span
-                                    className="text-[11px] font-semibold"
-                                    style={{
-                                      color: student.completedCount === student.totalDesks ? C.green : C.mutedSoft,
-                                    }}
-                                  >
-                                    {student.completedCount}/{student.totalDesks}
-                                  </span>
-                                </div>
-                              </td> */}
                               {desks.map((col) => {
                                 const cell = student.cells[col.key] || {};
                                 const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;

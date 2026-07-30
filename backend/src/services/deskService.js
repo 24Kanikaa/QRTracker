@@ -580,13 +580,29 @@ await this.db.query(
 //for all student report
 async getStudents(status = "ALL") {
   const [desks] = await this.db.query(`
-    SELECT id, desk_name
-    FROM desks
-    WHERE active = TRUE
-    ORDER BY display_order
+    SELECT
+      d.id,
+      d.desk_name,
+      COUNT(dci.id) AS total_item_count,
+      COUNT(
+          CASE
+              WHEN dci.type <> 'text' THEN 1
+          END
+      ) AS countable_item_count
+  FROM desks d
+  LEFT JOIN desk_checklist_items dci
+      ON dci.desk_id = d.id
+      AND dci.active = TRUE
+  WHERE d.active = TRUE
+  GROUP BY
+      d.id,
+      d.desk_name,
+      d.display_order
+  ORDER BY d.display_order
   `);
 
   const totalDesks = desks.length;
+
   const [students] = await this.db.query(`
     SELECT
         s.id,
@@ -596,6 +612,7 @@ async getStudents(status = "ALL") {
         s.last_name,
         s.email,
         s.gender,
+         s.copeBuddy,
         s.expected_date,
         s.arrival_date,
         DATE_FORMAT(s.expected_date, '%Y-%m-%d') AS expected_date_key,
@@ -626,40 +643,54 @@ async getStudents(status = "ALL") {
     ORDER BY l.scan_time
   `);
 
+  const [checklistCounts] = await this.db.query(`
+   SELECT
+    dcl.student_id,
+    dci.desk_id,
+    COUNT(*) AS checked_count
+FROM desk_checklist_logs dcl
+INNER JOIN desk_checklist_items dci
+    ON dci.id = dcl.checklist_item_id
+WHERE dci.type <> 'text'
+  AND dcl.checked IN ('1', 'true')
+GROUP BY
+    dcl.student_id,
+    dci.desk_id;
+  `);
+
   const logsMap = {};
-
   logs.forEach(log => {
-    if (!logsMap[log.student_id]) {
-      logsMap[log.student_id] = {};
-    }
-
+    if (!logsMap[log.student_id]) logsMap[log.student_id] = {};
     logsMap[log.student_id][log.desk_name] = {
       status: "completed",
       time: log.scan_time,
     };
   });
 
+  const checkedCountMap = {};
+  checklistCounts.forEach(row => {
+    if (!checkedCountMap[row.student_id]) checkedCountMap[row.student_id] = {};
+    checkedCountMap[row.student_id][row.desk_id] = row.checked_count;
+  });
+
   let result = students.map(student => {
-
     const studentLogs = logsMap[student.id] || {};
-
     const completedCount = Object.keys(studentLogs).length;
-
     const deskStatus = {};
 
     desks.forEach(desk => {
-
-      deskStatus[desk.desk_name] =
-        studentLogs[desk.desk_name] || {
-          status: "pending",
-          time: null,
-        };
-
+      const base = studentLogs[desk.desk_name] || { status: "pending", time: null };
+      deskStatus[desk.desk_name] = {
+        ...base,
+        checkedCount: checkedCountMap[student.id]?.[desk.id] ?? 0,
+        totalCount: desk.countable_item_count,
+      };
     });
 
     return {
       id: student.id,
       rollNumber: student.roll_number,
+      copeBuddy: student.copeBuddy,
       applicationNumber: student.application_number,
       name: `${student.first_name} ${student.last_name ?? ""}`.trim(),
       email: student.email,
@@ -668,7 +699,7 @@ async getStudents(status = "ALL") {
       expectedDate: student.expected_date,
       arrivalDate: student.arrival_date,
       expectedDateKey: student.expected_date_key,
-      arrivalDateKey: student.arrival_date_key, 
+      arrivalDateKey: student.arrival_date_key,
       isUnexpectedArrival: Boolean(student.is_unexpected_arrival),
       currentDesk: student.current_desk,
       completedCount,
@@ -679,36 +710,25 @@ async getStudents(status = "ALL") {
 
   switch (status) {
     case "COMPLETED":
-      result = result.filter(
-        s => s.completedCount === totalDesks
-      );
+      result = result.filter(s => s.completedCount === totalDesks);
       break;
-
     case "IN_PROGRESS":
-    
-      result = result.filter(
-        s =>
-          Boolean(s.arrivalDateKey) &&
-          s.completedCount < totalDesks
-      );
+      result = result.filter(s => Boolean(s.arrivalDateKey) && s.completedCount < totalDesks);
       break;
-
     case "EXPECTED":
-    
-      result = result.filter(
-        s => !s.arrivalDateKey
-      );
+      result = result.filter(s => !s.arrivalDateKey);
       break;
-
     case "UNEXPECTED":
-      result = result.filter(
-        s => s.isUnexpectedArrival
-      );
+      result = result.filter(s => s.isUnexpectedArrival);
       break;
   }
 
   return {
-    desks,
+    desks: desks.map(d => ({
+      id: d.id,
+      desk_name: d.desk_name,
+      hasChecklist: d.total_item_count > 0,
+    })),
     students: result,
   };
 }
