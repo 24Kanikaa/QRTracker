@@ -1808,6 +1808,7 @@ export default function AdmissionOverviewPage() {
                               </td>
                               {desks.map((col) => {
                                 const cell = student.cells[col.key] || {};
+                                console.log("kkk"+cell.time);
                                 const isClickable = col.hasChecklist !== false && cell.totalCount !== 0;
                                 return (
                                   <td key={col.key} className="px-1.5 py-3">
