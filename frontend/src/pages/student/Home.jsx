@@ -521,8 +521,8 @@ const handleScan = async (qrSlug) => {
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
               </a>
-              {/* <a
-                href="#"
+              <a
+                href="https://plakshauniversity1-my.sharepoint.com/personal/umair_rashid_plaksha_edu_in/Documents/Microsoft%20Teams%20Chat%20Files/Plaksha_StudentHandbook_2026_2264.pdf?TeamsCID=aa527ec2-5024-4b7a-ad30-b1e867ec5bf1"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
@@ -536,7 +536,7 @@ const handleScan = async (qrSlug) => {
                   </p>
                 </div>
                 <ExternalLink size={18} className="text-slate-400" />
-              </a> */}
+              </a>
 
               <a
                 href=" https://media.plaksha.edu.in/Academic_Calendar_2026-27.webp"
