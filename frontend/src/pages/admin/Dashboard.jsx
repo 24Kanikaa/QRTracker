@@ -519,7 +519,7 @@ const yAxisMax =
                       <StatCard
                         C={C}
                         title="In Progress"
-                        stat={data.stats.checkedIn}
+                        stat={data.stats.inProgress}
                         icon={<UserCheck size={20} />}
                         sparkColor={C.brass}
                       />
@@ -585,6 +585,7 @@ const yAxisMax =
                         icon={<Activity size={20} />}
                         sparkColor={C.orange}
                       />
+                      
 
                       <StatCard
                         C={C}

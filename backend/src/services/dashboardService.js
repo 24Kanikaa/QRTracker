@@ -890,327 +890,182 @@ return {
 
 }
 
-    async getOverallDashboardData(
-        activeDates
-    ) {
-
-        if (!activeDates.length) {
-
-            return {
-
-                stats: {
-
-                    expected: {
-                        value: 0,
-                        subtitle: "Students registered"
-                    },
-
-                    checkedIn: {
-                        value: 0,
-                        subtitle: "0% of expected"
-                    },
-
-                    completed: {
-                        value: 0,
-                        subtitle: "Finished all desks"
-                    },
-
-                    waiting: {
-                        value: 0,
-                        subtitle: "Never completed"
-                    },
-
-                    notExpected: {
-                        value: 0,
-                        subtitle: "Expected on another day"
-                    }
-
-                },
-
-                arrivalData: [],
-
-                overallPct: 0,
-
-                overallSubtitle:
-                    "0 of 0 fully onboarded",
-
-                deskPerformanceRaw: [],
-
-                recentStudents: []
-
-            };
-
-        }
-
-
-        const placeholders =
-            activeDates.map(() => "?").join(",");
-
-
-        // -----------------------------------------------------
-        // STUDENT COUNTS
-        // -----------------------------------------------------
-
-        const [[stats]] = await this.db.query(`
-
-            SELECT
-
-                COUNT(*) AS expected,
-
-                COUNT(
-                    DISTINCT CASE
-
-                        WHEN arrival_date IS NOT NULL
-
-                        THEN id
-
-                    END
-
-                ) AS checkedIn,
-
-
-                SUM(
-                    status = 'COMPLETED'
-                ) AS completed
-
-
-            FROM students
-            WHERE expected_date IN (${placeholders})
-
-        `, activeDates);
-
-
-        const expected =
-            Number(stats.expected || 0);
-
-
-        const checkedIn =
-            Number(stats.checkedIn || 0);
-
-
-        const completed =
-            Number(stats.completed || 0);
-
-
-        const waiting =
-    Math.max(
-        expected - checkedIn,
-        0
-    );
-
-        // -----------------------------------------------------
-        // NOT EXPECTED
-        //
-        // Global, across ALL students — anyone whose arrival
-        // date doesn't match their own expected date.
-        // -----------------------------------------------------
-
-        const [[notExpectedRow]] = await this.db.query(`
-
-            SELECT
-
-                COUNT(*) AS notExpected
-
-            FROM students
-
-            WHERE arrival_date IS NOT NULL
-              AND DATE(arrival_date) <> expected_date
-
-        `);
-
-        const notExpected =
-            Number(notExpectedRow.notExpected || 0);
-
-        // -----------------------------------------------------
-        // DESK PERFORMANCE
-        // -----------------------------------------------------
-
-        const [deskRows] = await this.db.query(`
-
-            SELECT
-
-                d.id,
-
-                d.desk_name AS name,
-
-                COUNT(
-                    DISTINCT s.id
-                ) AS expected,
-
-
-                COUNT(
-                    DISTINCT CASE
-
-                        WHEN l.id IS NOT NULL
-
-                        THEN s.id
-
-                    END
-
-                ) AS processed
-
-
-            FROM desks d
-
-
-            LEFT JOIN students s
-
-                ON s.expected_date IN
-                    (${placeholders})
-
-
-            LEFT JOIN logs l
-
+async getOverallDashboardData(activeDates) {
+
+    if (!activeDates.length) {
+        return {
+            stats: {
+                expected: { value: 0, subtitle: "Students registered" },
+                checkedIn: { value: 0, subtitle: "0% of expected" },
+                completed: { value: 0, subtitle: "Finished all desks" },
+                inProgress: { value: 0, subtitle: "Arrived but onboarding incomplete" },
+                waiting: { value: 0, subtitle: "Never completed" },
+                notExpected: { value: 0, subtitle: "Expected on another day" },
+            },
+            arrivalData: [],
+            overallPct: 0,
+            overallSubtitle: "0 of 0 fully onboarded",
+            deskPerformanceRaw: [],
+            recentStudents: [],
+        };
+    }
+
+    const placeholders = activeDates.map(() => "?").join(",");
+
+    // -----------------------------------------------------
+    // TOTAL ACTIVE DESKS
+    // -----------------------------------------------------
+
+    const [[deskCountRow]] = await this.db.query(`
+        SELECT COUNT(*) AS totalDesks
+        FROM desks
+        WHERE active = 1
+    `);
+
+    const totalDesks = Number(deskCountRow.totalDesks || 0);
+
+    // -----------------------------------------------------
+    // STUDENT COUNTS (expected + checkedIn only)
+    // -----------------------------------------------------
+
+    const [[stats]] = await this.db.query(`
+        SELECT
+            COUNT(*) AS expected,
+            COUNT(
+                DISTINCT CASE WHEN arrival_date IS NOT NULL THEN id END
+            ) AS checkedIn
+        FROM students
+        WHERE expected_date IN (${placeholders})
+    `, activeDates);
+
+    const expected = Number(stats.expected || 0);
+    const checkedIn = Number(stats.checkedIn || 0);
+
+    const waiting = Math.max(expected - checkedIn, 0);
+
+    // -----------------------------------------------------
+    // COMPLETED
+    //
+    // A student is completed when the number of DISTINCT
+    // active desks scanned equals the total active desks.
+    // -----------------------------------------------------
+
+    const completedParams = [...activeDates, totalDesks];
+
+    const [[completedRow]] = await this.db.query(`
+        SELECT COUNT(*) AS completed
+        FROM (
+            SELECT s.id
+            FROM students s
+            INNER JOIN logs l
                 ON l.student_id = s.id
+            INNER JOIN desks d
+                ON d.id = l.desk_id
+               AND d.active = 1
+            WHERE s.expected_date IN (${placeholders})
+            GROUP BY s.id
+            HAVING COUNT(DISTINCT l.desk_id) = ?
+        ) completed_students
+    `, completedParams);
 
-                AND l.desk_id = d.id
+    const completed = Number(completedRow.completed || 0);
 
+    // -----------------------------------------------------
+    // IN PROGRESS
+    // -----------------------------------------------------
+   console.log("hhh"+checkedIn,completed);
+    const inProgress = Math.max(checkedIn - completed, 0);
+    console.log("inporgress"+inProgress)
 
-            WHERE d.active = 1
+    // -----------------------------------------------------
+    // NOT EXPECTED
+    // -----------------------------------------------------
 
+    const [[notExpectedRow]] = await this.db.query(`
+        SELECT COUNT(*) AS notExpected
+        FROM students
+        WHERE arrival_date IS NOT NULL
+          AND DATE(arrival_date) <> expected_date
+    `);
 
-            GROUP BY
+    const notExpected = Number(notExpectedRow.notExpected || 0);
 
-                d.id,
+    // -----------------------------------------------------
+    // DESK PERFORMANCE
+    // -----------------------------------------------------
 
-                d.desk_name,
+    const [deskRows] = await this.db.query(`
+        SELECT
+            d.id,
+            d.desk_name AS name,
+            COUNT(DISTINCT s.id) AS expected,
+            COUNT(
+                DISTINCT CASE WHEN l.id IS NOT NULL THEN s.id END
+            ) AS processed
+        FROM desks d
+        LEFT JOIN students s
+            ON s.expected_date IN (${placeholders})
+        LEFT JOIN logs l
+            ON l.student_id = s.id
+           AND l.desk_id = d.id
+        WHERE d.active = 1
+        GROUP BY d.id, d.desk_name, d.display_order
+        ORDER BY d.display_order
+    `, activeDates);
 
-                d.display_order
-
-
-            ORDER BY d.display_order
-
-        `, activeDates);
-
-
-        const deskPerformance =
-            deskRows.map(row => {
-
-                const deskExpected =
-                    Number(row.expected || 0);
-
-
-                const processed =
-                    Number(row.processed || 0);
-
-
-                return {
-
-                    id: row.id,
-
-                    name: row.name,
-
-                    expected: deskExpected,
-
-                    processed,
-
-                    value: deskExpected
-
-                        ? Math.round(
-                            processed /
-                            deskExpected *
-                            100
-                        )
-
-                        : 0
-
-                };
-
-            });
-
-
-        const overallPct =
-            expected
-
-                ? Math.round(
-                    completed /
-                    expected *
-                    100
-                )
-
-                : 0;
-
+    const deskPerformance = deskRows.map((row) => {
+        const deskExpected = Number(row.expected || 0);
+        const processed = Number(row.processed || 0);
 
         return {
-
-            stats: {
-
-                expected: {
-
-                    value: expected,
-
-                    subtitle:
-                        "Students registered"
-
-                },
-
-
-                checkedIn: {
-
-                    value: checkedIn,
-
-                    subtitle:
-                        expected
-
-                            ? `${Math.round(
-                                checkedIn /
-                                expected *
-                                100
-                            )}% of expected`
-
-                            : "0% of expected"
-
-                },
-
-
-                completed: {
-
-                    value: completed,
-
-                    subtitle:
-                        "Finished all desks"
-
-                },
-
-
-                waiting: {
-
-                    value: waiting,
-
-                    subtitle:
-                        "Never completed"
-
-                },
-
-
-                notExpected: {
-
-                    value: notExpected,
-
-                    subtitle:
-                        "Expected on another day"
-
-                }
-
-            },
-
-
-            overallPct,
-
-
-            overallSubtitle:
-
-                `${completed} of ${expected} fully onboarded`,
-
-
-            deskPerformanceRaw:
-                deskPerformance,
-
-
-            recentStudents: []
-
+            id: row.id,
+            name: row.name,
+            expected: deskExpected,
+            processed,
+            value: deskExpected
+                ? Math.round((processed / deskExpected) * 100)
+                : 0,
         };
+    });
 
-    }
+    const overallPct = expected
+        ? Math.round((completed / expected) * 100)
+        : 0;
+
+    return {
+        stats: {
+            expected: {
+                value: expected,
+                subtitle: "Students registered",
+            },
+            checkedIn: {
+                value: checkedIn,
+                subtitle: expected
+                    ? `${Math.round((checkedIn / expected) * 100)}% of expected`
+                    : "0% of expected",
+            },
+            completed: {
+                value: completed,
+                subtitle: "Finished all desks",
+            },
+            inProgress: {
+                value: inProgress,
+                subtitle: "Arrived but onboarding incomplete",
+            },
+            waiting: {
+                value: waiting,
+                subtitle: "Never completed",
+            },
+            notExpected: {
+                value: notExpected,
+                subtitle: "Expected on another day",
+            },
+        },
+        overallPct,
+        overallSubtitle: `${completed} of ${expected} fully onboarded`,
+        deskPerformanceRaw: deskPerformance,
+        recentStudents: [],
+    };
+}
 }
 module.exports = DashboardService;
