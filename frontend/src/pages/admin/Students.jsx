@@ -1040,10 +1040,17 @@ export default function AdmissionOverviewPage() {
     [students]
   );
 
-  const dateFiltered = useMemo(
-    () => (selectedDate === "all" ? students : students.filter((s) => s.expectedDateKey === selectedDate)),
-    [students, selectedDate]
-  );
+const dateFiltered = useMemo(
+  () =>
+    selectedDate === "all"
+      ? students
+      : students.filter(
+          (s) =>
+            s.expectedDateKey === selectedDate &&
+            (!s.arrivalDate || s.arrivalDateKey === s.expectedDateKey)
+        ),
+  [students, selectedDate]
+);
 
   const searchFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();

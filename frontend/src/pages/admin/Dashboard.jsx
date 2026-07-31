@@ -459,7 +459,7 @@ const yAxisMax =
                     className="text-3xl font-semibold mt-1 tabular-nums"
                     style={{ color: C.muted }}
                   >
-                    ({formatPrettyDate(new Date())})
+                    ({formatPrettyDate(new Date(`${daywiseLabel}`))})
                   </span>
                 )}
               </h1>

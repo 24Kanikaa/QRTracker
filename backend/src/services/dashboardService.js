@@ -359,7 +359,8 @@ class DashboardService {
 
             FROM students
 
-            WHERE expected_date = ?
+           WHERE expected_date = ?
+            AND (arrival_date IS NULL OR DATE(arrival_date) = expected_date)
 
         `, [date]);
 
@@ -395,8 +396,8 @@ class DashboardService {
                 ON d.id = l.desk_id
                 AND d.active = 1
 
-            WHERE s.expected_date = ?
-
+           WHERE s.expected_date = ?
+          AND (arrival_date IS NULL OR DATE(arrival_date) = expected_date)
             GROUP BY s.id
 
             HAVING COUNT(DISTINCT l.desk_id) = ?
