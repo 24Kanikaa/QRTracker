@@ -517,7 +517,7 @@ const notExpectedInProgress =
 
 const inProgress =
     Math.max(
-        totalArrived - completed,
+        arrived - completed,
         0
     );
 
