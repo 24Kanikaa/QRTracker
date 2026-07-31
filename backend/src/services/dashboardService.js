@@ -411,53 +411,26 @@ class DashboardService {
 
     // -----------------------------------------------------
 // ARRIVED
-// -----------------------------------------------------
-
-// -----------------------------------------------------
-// ARRIVED
-// -----------------------------------------------------
+// --------------------------------------------------------------
 
 const [[arrivedRow]] = await this.db.query(`
+
     SELECT
-        SUM(
-            CASE
-                WHEN DATE(arrival_date) = DATE(expected_date)
-                THEN 1
-                ELSE 0
-            END
-        ) AS arrived,
-
-        SUM(
-            CASE
-                WHEN DATE(arrival_date) < DATE(expected_date)
-                THEN 1
-                ELSE 0
-            END
-        ) AS arrivedEarly,
-
-        SUM(
-            CASE
-                WHEN DATE(arrival_date) > DATE(expected_date)
-                THEN 1
-                ELSE 0
-            END
-        ) AS arrivedLate
+        SUM(CASE WHEN DATE(expected_date) = ? THEN 1 ELSE 0 END) AS onTime,
+        SUM(CASE WHEN DATE(expected_date) > ? THEN 1 ELSE 0 END) AS early,
+        SUM(CASE WHEN DATE(expected_date) < ? THEN 1 ELSE 0 END) AS late
 
     FROM students
 
-    WHERE DATE(expected_date) = ?
-      AND arrival_date IS NOT NULL
+    WHERE DATE(arrival_date) = ?
 
-`, [date]);
+`, [date, date, date, date]);
 
-const arrived = Number(arrivedRow.arrived || 0);
-const arrivedEarly = Number(arrivedRow.arrivedEarly || 0);
-const arrivedLate = Number(arrivedRow.arrivedLate || 0);
+const arrived = Number(arrivedRow.onTime || 0);
+const arrivedEarly = Number(arrivedRow.early || 0);
+const arrivedLate = Number(arrivedRow.late || 0);
 
-const totalArrived =
-    arrived +
-    arrivedEarly +
-    arrivedLate;
+const totalArrived = arrived + arrivedEarly + arrivedLate;
 
 
 // -----------------------------------------------------
@@ -483,21 +456,59 @@ const notArrived =
 // -----------------------------------------------------
 // NOT EXPECTED
 // -----------------------------------------------------
-
 const [[notExpectedRow]] = await this.db.query(`
 
     SELECT
-        COUNT(*) AS notExpected
+        COUNT(*) AS notExpected,
 
-    FROM students
+        SUM(
+            CASE
+                WHEN desks_scanned = ?
+                THEN 1
+                ELSE 0
+            END
+        ) AS notExpectedCompleted,
 
-    WHERE DATE(arrival_date) = ?
-      AND expected_date <> ?
+        SUM(
+            CASE
+                WHEN desks_scanned < ?
+                THEN 1
+                ELSE 0
+            END
+        ) AS notExpectedInProgress
 
-`, [date, date]);
+    FROM (
+
+        SELECT
+            s.id,
+            COUNT(DISTINCT l.desk_id) AS desks_scanned
+
+        FROM students s
+
+        LEFT JOIN logs l
+            ON l.student_id = s.id
+
+        LEFT JOIN desks d
+            ON d.id = l.desk_id
+            AND d.active = 1
+
+        WHERE DATE(s.arrival_date) = ?
+          AND s.expected_date <> ?
+
+        GROUP BY s.id
+
+    ) AS not_expected_students
+
+`, [totalDesks, totalDesks, date, date]);
 
 const notExpected =
     Number(notExpectedRow.notExpected || 0);
+
+const notExpectedCompleted =
+    Number(notExpectedRow.notExpectedCompleted || 0);
+
+const notExpectedInProgress =
+    Number(notExpectedRow.notExpectedInProgress || 0);
 
 
 // -----------------------------------------------------
@@ -710,7 +721,7 @@ return {
 
         value: expected,
 
-        subtitle: "Students expected"
+        // subtitle: "Students expected"
 
     },
 
@@ -718,7 +729,7 @@ return {
 
     value: totalArrived,
 
-    subtitle: "Students arrived",
+    // subtitle: "Students arrived",
 
     arrived,
     arrivedEarly,
@@ -726,11 +737,12 @@ return {
 
 },
 
+
     notArrived: {
 
         value: notArrived,
 
-        subtitle: "Yet to arrive"
+        // subtitle: "Yet to arrive"
 
     },
 
@@ -738,7 +750,7 @@ return {
 
         value: completed,
 
-        subtitle: `${totalDesks} of ${totalDesks} desks completed`
+        // subtitle: `${totalDesks} of ${totalDesks} desks completed`
 
     },
 
@@ -746,7 +758,10 @@ return {
 
         value: notExpected,
 
-        subtitle: "Expected on another day"
+        // subtitle: "Expected on another day",
+
+        notExpectedCompleted,
+        notExpectedInProgress
 
     },
 
@@ -754,7 +769,7 @@ return {
 
         value: inProgress,
 
-        subtitle: "Arrived but onboarding incomplete"
+        // subtitle: "Arrived but onboarding incomplete"
 
     }
 
@@ -1036,29 +1051,29 @@ async getOverallDashboardData(activeDates) {
         stats: {
             expected: {
                 value: expected,
-                subtitle: "Students registered",
+                // subtitle: "Students registered",
             },
             checkedIn: {
                 value: checkedIn,
-                subtitle: expected
-                    ? `${Math.round((checkedIn / expected) * 100)}% of expected`
-                    : "0% of expected",
+                // subtitle: expected
+                //     ? `${Math.round((checkedIn / expected) * 100)}% of expected`
+                //     : "0% of expected",
             },
             completed: {
                 value: completed,
-                subtitle: "Finished all desks",
+                // subtitle: "Finished all desks",
             },
             inProgress: {
                 value: inProgress,
-                subtitle: "Arrived but onboarding incomplete",
+                // subtitle: "Arrived but onboarding incomplete",
             },
             waiting: {
                 value: waiting,
-                subtitle: "Never completed",
+                // subtitle: "Never completed",
             },
             notExpected: {
                 value: notExpected,
-                subtitle: "Expected on another day",
+                // subtitle: "Expected on another day",
             },
         },
         overallPct,

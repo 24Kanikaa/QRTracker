@@ -127,7 +127,7 @@ function StatCard({ title, stat = {}, icon, sparkColor, C, compact = false }) {
         )}
       </div>
 
-      <p className={compact ? "text-xs mt-2.5" : "text-sm mt-4"} style={{ color: C.muted }}>
+      <p className={compact ? "text-xl font-semibold mt-2.5" : "text-xl font-semibold mt-4"} style={{ color: C.muted }}>
         {title}
       </p>
 
@@ -140,9 +140,9 @@ function StatCard({ title, stat = {}, icon, sparkColor, C, compact = false }) {
             {value}
           </h2>
           {stat.subtitle && (
-            <p className={compact ? "text-[10px] mt-0.5" : "text-xs mt-1"} style={{ color: C.mutedSoft }}>
+            <div className={compact ? "text-[10px] mt-0.5" : "text-xs mt-1"} style={{ color: C.mutedSoft }}>
               {stat.subtitle}
-            </p>
+            </div>
           )}
         </div>
         {!compact && <Sparkline data={stat.spark} color={sparkColor} />}
@@ -167,8 +167,9 @@ function LiveClock({ C }) {
         </span>
         <span className="text-xs font-semibold tracking-widest" style={{ color: C.clockAccent }}>LIVE</span>
       </div>
-      <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText }}>{time}</p>
-      <p className="text-xs mt-0.5" style={{ color: C.clockDate }}>{date}</p>
+        <p className="text-2xl font-semibold mt-1 tabular-nums" style={{ color: C.clockText }}>{time}</p>
+      {/* <p className="text-xs mt-0.5" style={{ color: C.clockDate }}>{date}</p> */}
+     
     </div>
   );
 }
@@ -284,7 +285,7 @@ export default function Dashboard() {
 const daywiseOptions = useMemo(
   () =>
     [...admissionDates]
-      .sort((a, b) => b.date.localeCompare(a.date))
+      // .sort((a, b) => b.date.localeCompare(a.date))
       .map((d) => ({
         key: d.date,
         label: d.isToday
@@ -314,6 +315,13 @@ const daywiseOptions = useMemo(
     "In Progress": { bg: C.brassSoft, fg: C.brass },
     Waiting: { bg: C.roseSoft, fg: C.rose },
   };
+function formatPrettyDate(d) {
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
 
   const daywiseLabel = daywiseOptions.find((o) => o.key === daywiseSelection)?.label;
 const expectedStudents =
@@ -440,11 +448,20 @@ const yAxisMax =
                   </span>
                 )}
               </div>
-              <h1
-                className="text-4xl md:text-5xl font-semibold mt-2 mb-5"
+             <h1
+                className="text-4xl md:text-5xl font-semibold mt-2 mb-5 flex items-end gap-2"
                 style={{ color: C.text, fontFamily: "'Open Sans', sans-serif" }}
               >
-                {mode === "overall" ? "Onboarding Dashboard" : "Onboarding Dashboard (Day Wise)"}
+                <span>Onboarding Dashboard</span>
+
+                {mode === "daywise" && (
+                  <span
+                    className="text-3xl font-semibold mt-1 tabular-nums"
+                    style={{ color: C.muted }}
+                  >
+                    ({formatPrettyDate(new Date())})
+                  </span>
+                )}
               </h1>
               <p className="mt-2" style={{ color: C.muted }}>
                 {mode === "overall"
@@ -501,11 +518,10 @@ const yAxisMax =
                 <div
                   className={
                     mode === "overall"
-                      ? "grid xl:grid-cols-4 lg:grid-cols-2 md:grid-cols-2 gap-5"
-                      : "grid xl:grid-cols-6 lg:grid-cols-3 md:grid-cols-2 sm:grid-cols-2 grid-cols-2 gap-3"
+                      ? "grid xl:grid-cols-5 lg:grid-cols-3 md:grid-cols-2 sm:grid-cols-2 grid-cols-2 gap-4"
+                      : "grid xl:grid-cols-5 lg:grid-cols-3 md:grid-cols-2 sm:grid-cols-2 grid-cols-2 gap-3"
                   }
                 >
-
                   {mode === "overall" ? (
                     <>
                       <StatCard
@@ -514,6 +530,19 @@ const yAxisMax =
                         stat={data.stats.expected}
                         icon={<Users size={20} />}
                         sparkColor={C.sky}
+                      />
+
+                      <StatCard
+                        C={C}
+                        title="Arrived"
+                        stat={{
+                          value:
+                            (data.stats.inProgress?.value || 0) +
+                            (data.stats.completed?.value || 0),
+                          // subtitle: "Students arrived",
+                        }}
+                        icon={<UserCheck size={20} />}
+                        sparkColor={C.brass}
                       />
 
                       <StatCard
@@ -542,6 +571,7 @@ const yAxisMax =
                     </>
                   ) : (
                     <>
+                    
                       <StatCard
                         C={C}
                         title="Expected"
@@ -550,29 +580,31 @@ const yAxisMax =
                         sparkColor={C.sky}
                       />
 
-                      <StatCard
-                        C={C}
-                        title="Arrived"
-                        stat={{
-                          ...data.stats.arrived,
-                          subtitle: (
-                           <>
-                            <div>
-                              Late arrivals: {data.stats?.arrived?.arrivedLate ?? 0}
-                            </div>
-                            <div>
-                              Early arrivals: {data.stats?.arrived?.arrivedEarly ?? 0}
-                            </div>
-                          </>
-                          ),
-                        }}
-                        icon={<UserCheck size={20} />}
-                        sparkColor={C.brass}
-                      />
+                        <StatCard
+                          C={C}
+                          title="Arrived Today"
+                          stat={{
+                            ...data.stats.arrived,
+                            subtitle: (
+                              <div
+                                className="flex items-center gap-2 font-semibold text-sm  mt-2 pt-2 flex-wrap"
+                                style={{ borderTop: `1px solid ${C.hairline}`,  color: "rgb(75, 100, 96)" }}
+                              >
+                                <span>On Time: {data.stats.arrived?.arrived ?? 0} |</span>
+                                
+                                <span>Early: {data.stats.arrived?.arrivedEarly ?? 0} |</span>
+                                
+                                <span>Late: {data.stats.arrived?.arrivedLate ?? 0}</span>
+                              </div>
+                            ),
+                          }}
+                          icon={<UserCheck size={20} />}
+                          sparkColor={C.brass}
+                        />
 
                       <StatCard
                         C={C}
-                        title="Completed"
+                        title="Completed Today"
                         stat={data.stats.completed}
                         icon={<CheckCircle2 size={20} />}
                         sparkColor={C.green}
@@ -580,13 +612,55 @@ const yAxisMax =
 
                       <StatCard
                         C={C}
-                        title="In Progress"
+                        title="In-progress Today"
                         stat={data.stats.inProgress}
                         icon={<Activity size={20} />}
                         sparkColor={C.orange}
-                      />
-                      
+                      />        
 
+                      
+                      {/* <StatCard
+                        C={C}
+                        title="Not Expected Today"
+                        stat={{
+                          ...data.stats.notExpected,
+                          value: (
+                            <div className="flex flex-col gap-0.5 mt-0.5">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="text-2xl font-semibold tracking-tight"
+                                  style={{ color: C.text }}
+                                >
+                                  {data.stats.notExpected.notExpectedCompleted}
+                                </span>
+                                <span
+                                  className="text-xs font-medium"
+                                  style={{ color: C.mutedSoft }}
+                                >
+                                  (Completed)
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="text-2xl font-semibold tracking-tight"
+                                  style={{ color: C.text }}
+                                >
+                                  {data.stats.notExpected.notExpectedInProgress}
+                                </span>
+                                <span
+                                  className="text-xs font-medium"
+                                  style={{ color: C.mutedSoft }}
+                                >
+                                  (In Progress)
+                                </span>
+                              </div>
+                            </div>
+                          ),
+                        }}
+                        icon={<AlertTriangle size={20} />}
+                        sparkColor={C.purple}
+                      /> */}
                       <StatCard
                         C={C}
                         title="Not Arrived"
@@ -595,13 +669,7 @@ const yAxisMax =
                         sparkColor={C.rose}
                       />
 
-                      <StatCard
-                        C={C}
-                        title="Not Expected Today"
-                        stat={data.stats.notExpected}
-                        icon={<AlertTriangle size={20} />}
-                        sparkColor={C.purple}
-                      />
+                      
                     </>
                   )}
 

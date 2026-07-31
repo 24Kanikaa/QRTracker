@@ -473,7 +473,6 @@ await this.db.query(
   `,
   [
     desk.id,
-    desk.is_gate,
     student.id
   ]
 );
