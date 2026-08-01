@@ -506,8 +506,7 @@ const handleScan = async (qrSlug) => {
                 <ExternalLink size={18} className="text-slate-400" />
               </a>
               <a
-                href="https://plakshauniversity1-my.sharepoint.com/personal/kanika_kainthla_plaksha_edu_in/Documents/Attachments/Orientation%20Schedule%20-%20Class%20of%202030.pdf?web=1"
-                target="_blank"
+                href="https://plakshauniversity1-my.sharepoint.com/:b:/g/personal/amol_kadam_plaksha_edu_in/IQD_D9-dpj3nR4vTMG10I0E9ATJUv56I4IR2M2egaF3aoL0?TeamsCID=7ae0b02d-dca5-4b10-877a-58ca6c875d35"
                 rel="noopener noreferrer"
                 className="flex items-center justify-between rounded-xl border border-slate-200 p-4 hover:border-teal-500 hover:bg-teal-50 transition"
               >
