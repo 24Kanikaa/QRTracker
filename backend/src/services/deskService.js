@@ -462,8 +462,7 @@ await this.db.query(
 
       arrival_date =
         CASE
-          WHEN ? = 1
-            AND arrival_date IS NULL
+          WHEN arrival_date IS NULL
           THEN NOW()
 
           ELSE arrival_date
