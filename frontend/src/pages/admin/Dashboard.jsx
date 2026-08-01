@@ -574,13 +574,13 @@ const yAxisMax =
                     
                       <StatCard
                         C={C}
-                        title="Expected"
+                        title="Expected Today"
                         stat={data.stats.expected}
                         icon={<Users size={20} />}
                         sparkColor={C.sky}
                       />
 
-                        <StatCard
+                        {/* <StatCard
                           C={C}
                           title="Arrived Today"
                           stat={{
@@ -600,12 +600,35 @@ const yAxisMax =
                           }}
                           icon={<UserCheck size={20} />}
                           sparkColor={C.brass}
-                        />
-
+                        /> */}
+                          <StatCard
+                            C={C}
+                            title="Arrived Today"
+                            stat={{
+                              ...data.stats.arrived,
+                              subtitle: (
+                                <div
+                                  className="font-bold text-sm mt-2 pt-2"
+                                  style={{ borderTop: `1px solid ${C.hairline}`, color: "rgb(75, 100, 96)" }}
+                                >
+                                  <div>Expected: {data.stats.arrived?.arrived ?? 0}</div>
+                                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                                    <span>Early: {data.stats.arrived?.arrivedEarly ?? 0} |</span>
+                                    <span>Late: {data.stats.arrived?.arrivedLate ?? 0}</span>
+                                  </div>
+                                </div>
+                              ),
+                            }}
+                            icon={<UserCheck size={20} />}
+                            sparkColor={C.brass}
+                          />
                       <StatCard
                         C={C}
                         title="Completed Today"
-                        stat={data.stats.completed}
+                        stat={{
+                          ...data.stats.completed,
+                          value: (data.stats.completed?.value ?? 0) + (data.stats.notExpected?.notExpectedCompleted ?? 0),
+                        }}
                         icon={<CheckCircle2 size={20} />}
                         sparkColor={C.green}
                       />
@@ -613,10 +636,13 @@ const yAxisMax =
                       <StatCard
                         C={C}
                         title="In-progress Today"
-                        stat={data.stats.inProgress}
+                        stat={{
+                          ...data.stats.inProgress,
+                          value: (data.stats.inProgress?.value ?? 0) + (data.stats.notExpected?.notExpectedInProgress ?? 0),
+                        }}
                         icon={<Activity size={20} />}
                         sparkColor={C.orange}
-                      />        
+                      />      
 
                       
                       {/* <StatCard
